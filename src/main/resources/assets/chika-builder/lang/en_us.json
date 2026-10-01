@@ -1,6 +1,8 @@
 {
   "chika_builder.command.usage": "#chika_build <filename>.schematic - builds a schematic from .minecraft/schematics/",
   "chika_builder.command.desc": "Chika Builder builds the named schematic automatically. Movement, pathing and block placement are handled for you; the schematic's corner is placed at your feet.",
+  "chika_builder.settings.usage": "#chika_builder creative|shop true|false",
+  "chika_builder.settings.desc": "Creative and auto-shop settings for Chika Builder. Both are off by default. Creative only takes effect when you are actually in Creative; it never changes your gamemode. Auto-shop only spends money when you enable it.",
   "key.chika_builder.open_settings": "Open Chika Builder Settings",
   "chika_builder.settings.title": "Chika Builder",
   "chika_builder.settings.studio": "by D Web Studio",

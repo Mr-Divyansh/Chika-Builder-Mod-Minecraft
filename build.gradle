@@ -10,14 +10,28 @@ base {
     archivesName = project.archives_base_name
 }
 
+// The build engine that powers #chika_build.
+//
+// It is consumed at COMPILE time and then MERGED INTO THIS MOD'S JAR (see the
+// `jar` task below), so players install exactly one file and the Mods screen
+// lists only Chika Builder.
+def engineJar = file('local/baritone-meteor-26.1.jar')
+
+if (!engineJar.exists()) {
+    throw new GradleException("Missing build engine: ${engineJar.absolutePath}\n" +
+            "Obtain it from its original distribution and place it there. " +
+            "It is third-party (LGPL-3.0) and is not redistributed in this repo.")
+}
+
 loom {
     // Minecraft 26.1 ships UNOBFUSCATED, so there is nothing to remap to or from
     // intermediary mappings. Disabling intermediary lets Loom use the
     // NoRemapMappingConfiguration instead of demanding a 'mappings' dependency.
     noIntermediateMappings()
 
-    // Baritone must stay a separate JAR: it ships nested jars (META-INF/jars)
-    // and its own mixin plugin, so it must never be relocated or shaded.
+    // The build engine ships nested jars (META-INF/jars) and its own mixin
+    // plugin, so it must be merged into this mod's jar exactly as-is: never
+    // relocated, never shaded, never rewritten.
     runs {
         client {
             client()
@@ -51,9 +65,11 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // Baritone is consumed as a plain compile-time + runtime dependency.
-    // It is intentionally NOT bundled: it ships nested jars and its own mixin
-    // plugin, so it must remain a separate JAR in .minecraft/mods.
+    // The build engine is consumed as a plain compile-time + runtime
+    // dependency, then MERGED INTO this mod's jar by the `jar` task below.
+    // It is included as-is (nested jars and mixin plugin preserved, never
+    // relocated or shaded), so the player installs a single file and the Mods
+    // screen shows only Chika Builder.
     implementation files('local/baritone-meteor-26.1.jar')
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
@@ -98,6 +114,39 @@ java {
 jar {
     from('LICENSE') {
         rename { "${it}_${project.base.archivesName.get()}" }
+    }
+
+    // Merge the build engine INTO this mod's jar.
+    //
+    // Why this works: the engine declares `"entrypoints": {}` and initialises
+    // itself through mixins (MixinMinecraft#postInit calls
+    // BaritoneAPI.getProvider()). It never looks itself up in Fabric's mod
+    // registry - no class references `baritone-meteor` or `ModContainer`. Its
+    // FabricMixinPlugin gates on isModLoaded("baritone") (note: "baritone",
+    // not the engine's own id), which is false in both the split and the
+    // merged layout, so every mixin still applies.
+    //
+    // The engine's own fabric.mod.json is EXCLUDED so this mod's metadata stays
+    // the only one, which is what keeps a second "Baritone" row out of the
+    // Mods screen. Its mixin config and nested library are kept and are
+    // declared by this mod's fabric.mod.json instead.
+    from(zipTree(engineJar)) {
+        exclude 'fabric.mod.json'
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+
+        // The engine's mixin config is renamed so the shipped jar carries no
+        // engine-named resource. Renaming the FILE is safe: FabricMixinPlugin
+        // gates on the mixin CLASS names ("baritone.launch.mixins.*"), which
+        // are untouched, not on the config file name.
+        rename { String name ->
+            if (name == 'mixins.baritone-meteor.json') {
+                return 'mixins.chika_engine.json'
+            }
+            return name
+        }
     }
 }
 

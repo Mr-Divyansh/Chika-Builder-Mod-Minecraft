@@ -4,11 +4,18 @@ import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.command.ICommand;
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.build.BuildService;
+import dev.chika.builder.build.material.PlayerContext;
+import dev.chika.builder.build.material.SchematicAnalyzer;
+import dev.chika.builder.build.shop.PurchaseOrchestrator;
 import dev.chika.builder.command.ChikaBuildCommand;
+import dev.chika.builder.command.ChikaBuilderCommand;
 import dev.chika.builder.command.CommandLockdown;
 import dev.chika.builder.config.ChikaConfig;
 import dev.chika.builder.platform.baritone.BaritoneBuildService;
+import dev.chika.builder.platform.baritone.BaritoneSchematicAnalyzer;
+import dev.chika.builder.platform.baritone.MinecraftPlayerContext;
 import dev.chika.builder.schematic.SchematicLocator;
 import dev.chika.builder.ui.ChikaSettingsScreen;
 import dev.chika.builder.ui.WatermarkHud;
@@ -29,8 +36,9 @@ import java.io.File;
  *
  * <p>Responsibilities, in order:
  * <ol>
- *   <li>register the single {@code #chika_build} command,</li>
- *   <li>remove every other Baritone command so {@code #goto}, {@code #follow},
+ *   <li>register Chika Builder's own commands, {@code #chika_build} and
+ *       {@code #chika_builder},</li>
+ *   <li>remove every other engine command so {@code #goto}, {@code #follow},
  *       {@code #mine} and the rest are no longer reachable,</li>
  *   <li>point the schematic locator at {@code .minecraft/schematics/}.</li>
  *   <li>load settings and register the optional D Web Studio watermark plus the
@@ -47,6 +55,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
 
     private SchematicLocator locator;
     private BuildService buildService;
+    private BuildCoordinator coordinator;
     private KeyMapping openSettingsKey;
 
     /** Ticks remaining in the periodic command-lockdown re-check. */
@@ -87,6 +96,26 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         // Settings (watermark ON/OFF, default ON) and the branding surfaces.
         ChikaConfig.load();
         registerBranding();
+
+        // The supply chain: read the schematic, check inventory, then Creative
+        // and auto-shop if the player has enabled them. Reads the player's real
+        // gamemode only - it never changes it.
+        PlayerContext player = new MinecraftPlayerContext();
+        SchematicAnalyzer analyzer = new BaritoneSchematicAnalyzer();
+        PurchaseOrchestrator purchases = PurchaseOrchestrator.usingRealRegistry(player::countItem);
+
+        this.coordinator = new BuildCoordinator(this.buildService, analyzer, player, purchases,
+                new BuildCoordinator.Settings() {
+                    @Override
+                    public boolean isCreativeEnabled() {
+                        return ChikaConfig.get().isCreativeEnabled();
+                    }
+
+                    @Override
+                    public boolean isShopEnabled() {
+                        return ChikaConfig.get().isShopEnabled();
+                    }
+                });
 
         // The internal build engine finishes registering its own commands after
         // mod init, so the lockdown retries here and then re-checks briefly on
@@ -145,22 +174,27 @@ public final class ChikaBuilderClient implements ClientModInitializer {
     }
 
     /**
-     * Registers {@code #chika_build} and removes every other engine command.
+     * Registers {@code #chika_build} and {@code #chika_builder}, then removes
+     * every other engine command.
      *
-     * <p>Order matters: the lockdown runs last so it keeps our command and
+     * <p>Order matters: the lockdown runs last so it keeps our two commands and
      * removes everything registered around it.
      */
     public void registerAndLockDown() {
         IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
 
-        ICommand command = new ChikaBuildCommand(baritone, this.buildService, this.locator);
+        ICommand command = new ChikaBuildCommand(baritone, this.coordinator, this.locator);
         baritone.getCommandManager().getRegistry().register(command);
+
+        // Settings command: #chika_builder creative|shop true|false
+        baritone.getCommandManager().getRegistry().register(new ChikaBuilderCommand(baritone));
 
         this.enforceLockdown();
     }
 
     /**
-     * Removes every command except {@code #chika_build} and reports the result.
+     * Removes every command except {@code #chika_build} and
+     * {@code #chika_builder}, and reports the result.
      *
      * <p>Called both at startup and on an ongoing schedule, because the engine
      * registers its own commands after mod initialisation finishes. Re-running
@@ -171,8 +205,8 @@ public final class ChikaBuilderClient implements ClientModInitializer {
 
         if (!this.lockdownReported && !removed.isEmpty()) {
             this.lockdownReported = true;
-            LOGGER.info("[{}] Enabled #{} only. Disabled {} other command(s).",
-                    DISPLAY_NAME, CommandLockdown.ALLOWED_COMMAND, removed.size());
+            LOGGER.info("[{}] Enabled {} only. Disabled {} other command(s).",
+                    DISPLAY_NAME, CommandLockdown.allowedCommands(), removed.size());
         }
     }
 

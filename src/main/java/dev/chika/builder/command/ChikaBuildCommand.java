@@ -3,7 +3,8 @@ package dev.chika.builder.command;
 import baritone.api.IBaritone;
 import baritone.api.command.Command;
 import baritone.api.command.argument.IArgConsumer;
-import dev.chika.builder.build.BuildException;
+import dev.chika.builder.build.BuildCoordinator;
+import dev.chika.builder.build.BuildOutcome;
 import dev.chika.builder.build.BuildService;
 import dev.chika.builder.schematic.SchematicLocator;
 import net.minecraft.core.BlockPos;
@@ -14,19 +15,25 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * {@code #chika_build <filename>.schematic} — the only command Chika Builder exposes.
+ * {@code #chika_build <filename>.schematic} — the only build command Chika Builder exposes.
  *
  * <p>Usage: {@code #chika_build house.schematic} builds the named schematic from
  * {@code .minecraft/schematics/} with its corner at the player's feet.
+ *
+ * <p>The command itself is intentionally thin: it resolves the file, asks the
+ * {@link BuildCoordinator} to run the build, and prints the coordinator's report.
+ * All supply logic (inventory, Creative, auto-shop, pausing) lives in the
+ * coordinator, which is pure and fully unit tested.
  */
 public final class ChikaBuildCommand extends Command {
 
-    private final BuildService buildService;
+    private final BuildCoordinator coordinator;
     private final SchematicLocator locator;
 
-    public ChikaBuildCommand(IBaritone baritone, BuildService buildService, SchematicLocator locator) {
+    public ChikaBuildCommand(IBaritone baritone, BuildCoordinator coordinator,
+                             SchematicLocator locator) {
         super(baritone, CommandLockdown.ALLOWED_COMMAND);
-        this.buildService = buildService;
+        this.coordinator = coordinator;
         this.locator = locator;
     }
 
@@ -59,23 +66,16 @@ public final class ChikaBuildCommand extends Command {
             return;
         }
 
-        if (!this.buildService.isAvailable()) {
-            say(this.ctx, "Chika Builder: build backend is not ready yet. Try again in a moment.");
-            return;
-        }
-
         BlockPos anchor = this.ctx.playerFeet();
         BuildService.Origin origin =
                 new BuildService.Origin(anchor.getX(), anchor.getY(), anchor.getZ());
 
         try {
-            this.buildService.startBuild(schematic, origin);
-            // The backend name is intentionally not shown: it is an internal
-            // implementation detail and should never surface to the player.
-            say(this.ctx, "Chika Builder: building '" + schematic.getName()
-                    + "' from " + origin + ".");
-        } catch (BuildException e) {
-            say(this.ctx, "Chika Builder: " + e.getMessage());
+            BuildOutcome outcome = this.coordinator.requestBuild(schematic, origin);
+
+            for (String line : outcome.lines()) {
+                say(this.ctx, line);
+            }
         } catch (Throwable t) {
             say(this.ctx, "Chika Builder: unexpected error - " + t);
         }

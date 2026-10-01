@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "Chika Builder",
   "icon": "assets/chika-builder/icon.png",
-  "description": "CHIKA BUILDER by D Web Studio. Builds your schematics automatically with a single command: #chika_build <schematic>.schematic",
+  "description": "CHIKA BUILDER by D Web Studio. Builds your schematics automatically with #chika_build <schematic>.schematic",
   "authors": [
     "Chika",
     "D Web Studio"
@@ -16,12 +16,19 @@
       "dev.chika.builder.ChikaBuilderClient"
     ]
   },
+  "mixins": [
+    "mixins.chika_engine.json"
+  ],
+  "jars": [
+    {
+      "file": "META-INF/jars/nether-pathfinder-1.4.1.jar"
+    }
+  ],
   "depends": {
     "fabricloader": ">=${loader_version}",
     "minecraft": "${minecraft_version}",
     "java": ">=25",
-    "fabric-api": "*",
-    "baritone-meteor": "*"
+    "fabric-api": "*"
   },
-  "description_marker": "CHIKA BUILDER by D Web Studio is a focused schematic builder. It exposes exactly one command, #chika_build. All other engine commands are disabled."
+  "description_marker": "CHIKA BUILDER by D Web Studio is a focused schematic builder. It exposes exactly two commands, #chika_build and #chika_builder. Every other engine command is removed."
 }

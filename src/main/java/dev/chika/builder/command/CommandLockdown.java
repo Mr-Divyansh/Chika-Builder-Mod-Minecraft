@@ -9,13 +9,14 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Restricts the engine's command surface down to Chika Builder's single command.
+ * Restricts the engine's command surface down to Chika Builder's own commands.
  *
  * <p>The engine registers a large command set of its own (navigation, mining,
  * following, exploration, and more) via a mixin on the client's command
- * suggestion helper. Chika Builder exposes exactly one command,
- * {@code #chika_build}, so this class walks the engine's command registry and
- * <strong>unregisters everything that is not ours</strong>.
+ * suggestion helper. Chika Builder exposes exactly two commands,
+ * {@code #chika_build} and {@code #chika_builder}, so this class walks the
+ * engine's command registry and <strong>unregisters everything that is not
+ * ours</strong>.
  *
  * <p>This is real removal, not hiding: an unregistered command cannot be
  * executed <em>and</em> disappears from tab completion, so there is no way for
@@ -25,9 +26,28 @@ import java.util.Locale;
 public final class CommandLockdown {
 
     /**
-     * The one and only command Chika Builder exposes.
+     * The build command Chika Builder exposes.
      */
     public static final String ALLOWED_COMMAND = "chika_build";
+
+    /**
+     * The settings command Chika Builder exposes.
+     *
+     * <p>Separate from {@link #ALLOWED_COMMAND} because it does something
+     * different: it flips a persisted option and never starts a build.
+     */
+    public static final String ALLOWED_SETTINGS_COMMAND = "chika_builder";
+
+    /**
+     * Every command Chika Builder keeps. Everything else is unregistered.
+     */
+    private static final List<String> ALLOWED_COMMANDS =
+            List.of(ALLOWED_COMMAND, ALLOWED_SETTINGS_COMMAND);
+
+    /** All commands Chika Builder exposes. Exposed for tests/docs. */
+    public static List<String> allowedCommands() {
+        return ALLOWED_COMMANDS;
+    }
 
     /**
      * Every command name that must never be reachable.
@@ -54,7 +74,6 @@ public final class CommandLockdown {
             "blacklist",
             "click",
             "thisway",
-            "come",
             "surface",
             "proc",
             "rep",
@@ -79,7 +98,7 @@ public final class CommandLockdown {
     }
 
     /**
-     * Unregisters every command except {@link #ALLOWED_COMMAND}.
+     * Unregisters every command except those in {@link #allowedCommands()}.
      *
      * <p>Safe to call repeatedly: commands already removed simply are not found
      * again. Called repeatedly because the engine finishes registering its
@@ -121,8 +140,9 @@ public final class CommandLockdown {
     }
 
     /**
-     * True when the registry currently exposes any command other than
-     * {@code chika_build}. Used by the test suite and by the startup self-check.
+     * True when the registry currently exposes any command outside
+     * {@link #allowedCommands()}. Used by the test suite and by the startup
+     * self-check.
      */
     public static List<String> findLeakedCommands() {
         List<String> leaked = new ArrayList<>();
@@ -149,12 +169,25 @@ public final class CommandLockdown {
     }
 
     /**
-     * Only Chika Builder's own command survives. No other command is allowed,
+     * Only Chika Builder's own commands survive. No engine command is allowed,
      * including execution helpers such as cancel/pause/resume.
      */
     private static boolean isAllowed(ICommand command) {
         for (String name : safeNames(command)) {
-            if (ALLOWED_COMMAND.equalsIgnoreCase(name)) {
+            if (isAllowedName(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True when {@code name} is one of Chika Builder's own commands. */
+    public static boolean isAllowedName(String name) {
+        if (name == null) {
+            return false;
+        }
+        for (String allowed : ALLOWED_COMMANDS) {
+            if (allowed.equalsIgnoreCase(name)) {
                 return true;
             }
         }
@@ -176,7 +209,7 @@ public final class CommandLockdown {
             return false;
         }
         String lower = name.toLowerCase(Locale.ROOT);
-        if (ALLOWED_COMMAND.equals(lower)) {
+        if (isAllowedName(lower)) {
             return false;
         }
         return FORBIDDEN_COMMANDS.contains(lower);

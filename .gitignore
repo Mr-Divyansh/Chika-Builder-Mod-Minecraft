@@ -1,6 +1,9 @@
 # Gradle
 .gradle/
-build/
+# Anchored to the repo root on purpose: an unanchored `build/` also matched
+# src/main/java/dev/chika/builder/build/, which silently hid the whole
+# build/material/shop package from version control.
+/build/
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDE
@@ -26,6 +29,31 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Secrets and local-only configuration - NEVER commit these.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials.json
+credentials.*
+secrets.json
+secrets.*
+*.token
+tokens.json
+access_token*
+local.properties
+secrets.properties
+
+# Local screenshots / scratch images at the repo root. The real assets live
+# under src/main/resources/assets/.
+/*.png
+/*.jpg
+/*.jpeg
+
 # The internal build engine jar (baritone-meteor-26.1.jar).
 #
 # This is a THIRD-PARTY binary (Baritone, LGPL-3.0, authored by cabaletta/Brady)
@@ -34,5 +62,5 @@ Thumbs.db
 # To build, obtain the jar and place it in local/:
 #   local/baritone-meteor-26.1.jar
 #
-# See README "Third-party dependency" for details.
-local/*.jar
+# See README "Building from source" and architecture.md for details.
+local/

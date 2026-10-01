@@ -25,6 +25,24 @@ public final class ChikaConfig {
     /** D Web Studio watermark toggle. Defaults to ON. */
     private boolean watermarkEnabled = true;
 
+    /**
+     * Whether Chika Builder may use Creative-mode building logic.
+     *
+     * <p>Defaults to {@code false}: survival building is the expected behaviour.
+     *
+     * <p>This flag never changes the player's gamemode. It only tells the
+     * material planner that Creative mechanics may be used, and even then only
+     * when the player is <em>actually</em> in Creative.
+     */
+    private boolean creativeEnabled = false;
+
+    /**
+     * Whether missing materials may be bought automatically.
+     *
+     * <p>Defaults to {@code false}: automatic spending must be opted into.
+     */
+    private boolean shopEnabled = false;
+
     private static final Logger LOGGER = LoggerFactory.getLogger("ChikaBuilder");
 
     private static ChikaConfig instance = new ChikaConfig(null);
@@ -58,6 +76,40 @@ public final class ChikaConfig {
 
     public void toggleWatermark() {
         setWatermarkEnabled(!this.watermarkEnabled);
+    }
+
+    // ---------------------------------------------------------------------
+    // Creative-mode building
+    // ---------------------------------------------------------------------
+
+    /** True when Creative-mode building is allowed. Does NOT imply the player is in Creative. */
+    public boolean isCreativeEnabled() {
+        return this.creativeEnabled;
+    }
+
+    public void setCreativeEnabled(boolean enabled) {
+        if (this.creativeEnabled == enabled) {
+            return;
+        }
+        this.creativeEnabled = enabled;
+        save();
+    }
+
+    // ---------------------------------------------------------------------
+    // Auto-shop
+    // ---------------------------------------------------------------------
+
+    /** True when missing materials may be purchased automatically. */
+    public boolean isShopEnabled() {
+        return this.shopEnabled;
+    }
+
+    public void setShopEnabled(boolean enabled) {
+        if (this.shopEnabled == enabled) {
+            return;
+        }
+        this.shopEnabled = enabled;
+        save();
     }
 
     /** The settings file location, or null when it cannot be resolved. */
@@ -98,9 +150,19 @@ public final class ChikaConfig {
             if (json.has("watermarkEnabled") && json.get("watermarkEnabled").isJsonPrimitive()) {
                 loaded.watermarkEnabled = json.get("watermarkEnabled").getAsBoolean();
             }
+            // Absent keys keep their default (false), so a config written by an
+            // older version still loads cleanly.
+            if (json.has("creativeEnabled") && json.get("creativeEnabled").isJsonPrimitive()) {
+                loaded.creativeEnabled = json.get("creativeEnabled").getAsBoolean();
+            }
+            if (json.has("shopEnabled") && json.get("shopEnabled").isJsonPrimitive()) {
+                loaded.shopEnabled = json.get("shopEnabled").getAsBoolean();
+            }
         } catch (Exception e) {
             LOGGER.warn("Could not read {} - using defaults", file, e);
             loaded.watermarkEnabled = true;
+            loaded.creativeEnabled = false;
+            loaded.shopEnabled = false;
         }
 
         return loaded;
@@ -118,6 +180,8 @@ public final class ChikaConfig {
             }
             JsonObject json = new JsonObject();
             json.addProperty("watermarkEnabled", this.watermarkEnabled);
+            json.addProperty("creativeEnabled", this.creativeEnabled);
+            json.addProperty("shopEnabled", this.shopEnabled);
             try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                 writer.write(json.toString());
             }

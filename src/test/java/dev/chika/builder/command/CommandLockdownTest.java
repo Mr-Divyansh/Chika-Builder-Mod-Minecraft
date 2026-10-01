@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies that Chika Builder exposes exactly one command and that every
+ * Verifies that Chika Builder exposes only its own two commands and that every
  * engine command is unreachable.
  */
 class CommandLockdownTest {
@@ -17,6 +17,31 @@ class CommandLockdownTest {
     @Test
     void onlyAllowedCommandIsChikaBuild() {
         assertEquals("chika_build", CommandLockdown.ALLOWED_COMMAND);
+    }
+
+    @Test
+    void settingsCommandUsesTheExactNameFromTheSpec() {
+        // #chika_builder creative|shop true|false - spelling is part of the API.
+        assertEquals("chika_builder", ChikaBuilderCommand.COMMAND_NAME);
+        assertTrue(CommandLockdown.isAllowedName(ChikaBuilderCommand.COMMAND_NAME));
+    }
+
+    @Test
+    void chikaBuilderExposesExactlyTwoCommands() {
+        // #chika_build (build) and #chika_builder (settings). No engine command
+        // is ever on this list.
+        assertEquals(List.of("chika_build", "chika_builder"), CommandLockdown.allowedCommands());
+        assertEquals("chika_builder", CommandLockdown.ALLOWED_SETTINGS_COMMAND);
+    }
+
+    @Test
+    void bothChikaCommandsAreAllowedAndNotForbidden() {
+        assertFalse(CommandLockdown.isForbidden("chika_build"));
+        assertFalse(CommandLockdown.isForbidden("chika_builder"),
+                "the settings command must be reachable");
+
+        assertTrue(CommandLockdown.isAllowedName("chika_build"));
+        assertTrue(CommandLockdown.isAllowedName("chika_builder"));
     }
 
     @Test
