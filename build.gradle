@@ -1,0 +1,113 @@
+plugins {
+    id 'fabric-loom' version '1.18.2'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+loom {
+    // Minecraft 26.1 ships UNOBFUSCATED, so there is nothing to remap to or from
+    // intermediary mappings. Disabling intermediary lets Loom use the
+    // NoRemapMappingConfiguration instead of demanding a 'mappings' dependency.
+    noIntermediateMappings()
+
+    // Baritone must stay a separate JAR: it ships nested jars (META-INF/jars)
+    // and its own mixin plugin, so it must never be relocated or shaded.
+    runs {
+        client {
+            client()
+            ideConfigGenerated true
+            runDir 'run'
+        }
+    }
+}
+
+// The Minecraft version is read from gradle.properties so the Baritone
+// dependency and the Minecraft dependency can never drift apart.
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+
+    // NO mappings are declared on purpose.
+    //
+    // Minecraft 26.1 ships UNOBFUSCATED: its version manifest publishes only
+    // "client" and "server" downloads and no "client_mappings" entry, so there
+    // are no ProGuard mappings to apply and none to download. Class names in the
+    // jar are already the real ones (net.minecraft.core.BlockPos,
+    // net.minecraft.client.Minecraft, ...).
+    //
+    // This is also why baritone-meteor-26.1.jar compiles against Mojang names
+    // and why Yarn publishes no 26.1 build. Requesting
+    // `loom.officialMojangMappings()` fails with
+    // "Failed to find official mojang mappings for 26.1".
+
+    // modImplementation() only exists when Loom builds remapped variants.
+    // With fabric.loom.disableObfuscation=true there is nothing to remap, so the
+    // regular Gradle configurations are used instead.
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Baritone is consumed as a plain compile-time + runtime dependency.
+    // It is intentionally NOT bundled: it ships nested jars and its own mixin
+    // plugin, so it must remain a separate JAR in .minecraft/mods.
+    implementation files('local/baritone-meteor-26.1.jar')
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', project.minecraft_version
+    inputs.property 'loader_version', project.loader_version
+
+    filesMatching('fabric.mod.json') {
+        expand version: project.version,
+                minecraft_version: project.minecraft_version,
+                loader_version: project.loader_version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    // Minecraft 26.1 requires Java 25, so the mod is compiled for Java 25 too.
+    it.options.release = 25
+    it.options.compilerArgs << '-Xlint:deprecation'
+}
+
+// Loom provisions the Java 25 toolchain that Minecraft 26.1 requires.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
+
+    repositories {
+    }
+}

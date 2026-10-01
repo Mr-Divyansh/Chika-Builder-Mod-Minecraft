@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# Fabric / Loom runtime dirs
+run/
+remappedSrc/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# The internal build engine jar (baritone-meteor-26.1.jar).
+#
+# This is a THIRD-PARTY binary (Baritone, LGPL-3.0, authored by cabaletta/Brady)
+# and is deliberately NOT committed or redistributed with this repository.
+#
+# To build, obtain the jar and place it in local/:
+#   local/baritone-meteor-26.1.jar
+#
+# See README "Third-party dependency" for details.
+local/*.jar

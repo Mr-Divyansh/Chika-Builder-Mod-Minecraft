@@ -1,0 +1,12 @@
+{
+  "chika_builder.command.usage": "#chika_build <filename>.schematic - builds a schematic from .minecraft/schematics/",
+  "chika_builder.command.desc": "Chika Builder builds the named schematic automatically. Movement, pathing and block placement are handled for you; the schematic's corner is placed at your feet.",
+  "key.chika_builder.open_settings": "Open Chika Builder Settings",
+  "chika_builder.settings.title": "Chika Builder",
+  "chika_builder.settings.studio": "by D Web Studio",
+  "chika_builder.settings.watermark_label": "D Web Studio Watermark",
+  "chika_builder.settings.watermark_on": "ON",
+  "chika_builder.settings.watermark_off": "OFF",
+  "chika_builder.settings.done": "Done",
+  "chika_builder.settings.hint": "Build a schematic with #chika_build <file>.schematic"
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "chika-builder",
+  "version": "${version}",
+  "name": "Chika Builder",
+  "description": "CHIKA BUILDER by D Web Studio. Builds your schematics automatically with a single command: #chika_build <schematic>.schematic",
+  "authors": [
+    "Chika",
+    "D Web Studio"
+  ],
+  "license": "LGPL-3.0",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.chika.builder.ChikaBuilderClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": "*",
+    "baritone-meteor": "*"
+  },
+  "description_marker": "CHIKA BUILDER by D Web Studio is a focused schematic builder. It exposes exactly one command, #chika_build. All other engine commands are disabled."
+}
