@@ -6,9 +6,10 @@ import java.io.File;
  * Abstraction over "something that can construct a schematic in the world".
  *
  * <p>This is the seam that keeps Chika Builder's command layer independent of
- * Baritone. The command layer only ever talks to this interface, so the
- * Baritone-backed implementation can be swapped for a standalone implementation
- * later without touching {@code #chika_build} or any user-visible behaviour.
+ * the internal build engine. The command layer only ever talks to this
+ * interface, so the engine-backed implementation can be swapped for a
+ * standalone implementation later without touching {@code #chika_build} or any
+ * user-visible behaviour.
  */
 public interface BuildService {
 

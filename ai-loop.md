@@ -20,7 +20,7 @@ Tab completion lists the files that actually exist.
 ## 2. Analyze
 
 `SchematicAnalyzer.analyze(file, origin)` (implemented by
-`BaritoneSchematicAnalyzer`) loads the schematic and returns one
+`ChikaSchematicAnalyzer`) loads the schematic and returns one
 `MaterialNeed` per distinct block type, anchored at the origin — your feet.
 
 An unreadable or malformed file raises `SchematicAnalysisException`, which the
@@ -82,7 +82,7 @@ none registered, `shop=true` results in an honest pause.
 
 If everything is covered, `BuildCoordinator` calls
 `BuildService.startBuild(schematic, origin)` →
-`BaritoneBuildService`, which anchors the schematic at the origin, tunes the
+`ChikaBuildService`, which anchors the schematic at the origin, tunes the
 engine's builder settings for accurate (non-ignored) placement and layered
 building, and starts the builder process.
 

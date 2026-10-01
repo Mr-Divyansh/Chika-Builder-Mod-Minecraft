@@ -23,7 +23,7 @@ never appear in:
 - the mod name, description, or any metadata a player can read;
 - `Branding` constants;
 - chat messages;
-- the backend's user-facing name (`BaritoneBuildService.name()`).
+- the backend's user-facing name (`ChikaBuildService.name()`).
 
 This is enforced by `BrandingTest.noUserFacingBrandingMentionsTheEngine`,
 `LayeringTest.engineNameIsNotUserFacingBranding` and

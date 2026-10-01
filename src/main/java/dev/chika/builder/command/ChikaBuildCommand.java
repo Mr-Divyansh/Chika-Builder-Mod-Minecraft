@@ -30,9 +30,9 @@ public final class ChikaBuildCommand extends Command {
     private final BuildCoordinator coordinator;
     private final SchematicLocator locator;
 
-    public ChikaBuildCommand(IBaritone baritone, BuildCoordinator coordinator,
+    public ChikaBuildCommand(IBaritone engine, BuildCoordinator coordinator,
                              SchematicLocator locator) {
-        super(baritone, CommandLockdown.ALLOWED_COMMAND);
+        super(engine, CommandLockdown.ALLOWED_COMMAND);
         this.coordinator = coordinator;
         this.locator = locator;
     }

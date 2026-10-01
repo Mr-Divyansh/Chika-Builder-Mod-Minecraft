@@ -35,7 +35,7 @@ src/main/java/dev/chika/builder/
 ├── schematic/                name -> file resolution
 ├── config/                   persisted settings
 ├── ui/                       settings screen, watermark
-└── platform/baritone/        the only engine-aware package
+└── platform/engine/          the only engine-aware package
 src/test/java/dev/chika/builder/   mirrors the packages above
 ```
 

@@ -24,9 +24,9 @@ being placed.
  interfaces               BuildService, SchematicAnalyzer, PlayerContext
      │
      ▼
- platform/baritone/       the one package that knows the engine
-   ├─ BaritoneBuildService
-   ├─ BaritoneSchematicAnalyzer
+ platform/engine/         the one package that knows the engine
+   ├─ ChikaBuildService
+   ├─ ChikaSchematicAnalyzer
    ├─ ExistingBlockChecker
    ├─ MinecraftPlayerContext
    └─ ItemIds
@@ -44,12 +44,12 @@ being placed.
 | `…builder.schematic` | resolving typed names against `.minecraft/schematics/` | no |
 | `…builder.config` | persisted settings | Fabric Loader only (path lookup) |
 | `…builder.ui` | settings screen, watermark | yes |
-| `…builder.platform.baritone` | the actual build/pathing implementation | yes — **this is the only implementation package** |
+| `…builder.platform.engine` | the actual build/pathing implementation | yes — **this is the only implementation package** |
 
 The rule the tests enforce: `build/`, `material/`, `shop/` and `schematic/` are
 pure logic, so the whole pause/resume decision is unit-testable without
 launching a game. Anything engine-specific lives behind the interfaces above
-and is implemented in `platform/baritone`.
+and is implemented in `platform/engine`.
 
 ## Startup sequence
 
@@ -58,7 +58,7 @@ and is implemented in `platform/baritone`.
 1. Resolve `.minecraft/schematics/` and create it (`mkdirs()`), logging a
    warning if that fails.
 2. `ChikaConfig.load()` — read `config/chika-builder.json`.
-3. Wire `BaritoneBuildService`, `BaritoneSchematicAnalyzer`,
+3. Wire `ChikaBuildService`, `ChikaSchematicAnalyzer`,
    `MinecraftPlayerContext`, `PurchaseOrchestrator` and `BuildCoordinator`.
 4. On the first client tick — with a retry loop of up to 20 attempts — register
    `#chika_build` and `#chika_builder`, then run `CommandLockdown.enforce()`.

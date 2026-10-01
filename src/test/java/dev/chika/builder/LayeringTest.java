@@ -1,7 +1,7 @@
 package dev.chika.builder;
 
 import dev.chika.builder.build.BuildService;
-import dev.chika.builder.platform.baritone.BaritoneBuildService;
+import dev.chika.builder.platform.engine.ChikaBuildService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,14 +16,14 @@ class LayeringTest {
 
     @Test
     void engineServiceImplementsTheServiceInterface() {
-        BuildService service = new BaritoneBuildService();
+        BuildService service = new ChikaBuildService();
         assertTrue(service instanceof BuildService);
     }
 
     @Test
     void engineNameIsNotUserFacingBranding() {
         // The backend identifier must never read as a product name.
-        String name = new BaritoneBuildService().name();
+        String name = new ChikaBuildService().name();
         assertFalse(name.toLowerCase(java.util.Locale.ROOT).contains("baritone"),
                 "backend name must not expose engine branding: " + name);
     }
@@ -41,8 +41,8 @@ class LayeringTest {
     void watermarkLogicIsSeparateFromTheBuilder() {
         // Watermark / UI code must not be reachable from the build service,
         // so branding can never interfere with building or block placement.
-        assertFalse(dependsOnAny(BaritoneBuildService.class, "dev.chika.builder.ui"));
-        assertFalse(dependsOnAny(BaritoneBuildService.class, "dev.chika.builder.config"));
+        assertFalse(dependsOnAny(ChikaBuildService.class, "dev.chika.builder.ui"));
+        assertFalse(dependsOnAny(ChikaBuildService.class, "dev.chika.builder.config"));
     }
 
     private static boolean dependsOnAny(Class<?> type, String prefix) {

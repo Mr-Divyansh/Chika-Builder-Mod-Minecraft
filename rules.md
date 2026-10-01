@@ -40,7 +40,7 @@ concrete cost, and each is (or should be) covered by a test.
 12. **Pure logic stays pure.** `build/`, `material/`, `shop/`, `schematic/`
     depend on interfaces, not on Minecraft or engine classes, so they can be
     unit-tested without a running game. Engine specifics live in
-    `platform/baritone` only.
+    `platform/engine` only.
 13. **No new dependency without a test that needs it.** The project targets a
     single Minecraft version and a fixed toolchain; version bumps must change
     `gradle.properties`, `fabric.mod.json` (via expansion) and this docs set

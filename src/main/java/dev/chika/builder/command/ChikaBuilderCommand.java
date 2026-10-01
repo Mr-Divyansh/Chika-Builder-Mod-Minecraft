@@ -30,8 +30,8 @@ public final class ChikaBuilderCommand extends Command {
 
     private static final List<String> OPTIONS = List.of("creative", "shop");
 
-    public ChikaBuilderCommand(IBaritone baritone) {
-        super(baritone, COMMAND_NAME);
+    public ChikaBuilderCommand(IBaritone engine) {
+        super(engine, COMMAND_NAME);
     }
 
     @Override

@@ -42,6 +42,12 @@ versions are tagged with the mod version in `gradle.properties`.
   folder, commands, limitations, troubleshooting).
 - Full documentation set added: `architecture.md`, `ai-loop.md`, `memory.md`,
   `design.md`, `phases.md`, `prd.md`, `rules.md`, `CONTRIBUTING.md`.
+- Project-owned engine wrapper renamed to Chika Builder terminology: the
+  `platform.baritone` package is now `platform.engine`, and
+  `BaritoneBuildService` / `BaritoneSchematicAnalyzer` are now
+  `ChikaBuildService` / `ChikaSchematicAnalyzer`. Remaining engine-name
+  references are only the third-party API imports, the engine jar filename,
+  and the test guards that assert the engine never surfaces to players.
 
 ### Security
 

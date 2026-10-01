@@ -1,4 +1,4 @@
-package dev.chika.builder.platform.baritone;
+package dev.chika.builder.platform.engine;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;

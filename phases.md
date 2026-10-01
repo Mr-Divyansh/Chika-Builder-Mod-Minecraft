@@ -19,7 +19,7 @@ promised yet.
 - `MaterialPlanner` priority ladder: already-placed → inventory → creative →
   shop → missing.
 - `BuildService` / `SchematicAnalyzer` / `PlayerContext` seams, implemented in
-  `platform/baritone`.
+  `platform/engine`.
 
 ### Phase 3 — Honest supply
 - `PurchaseOrchestrator` buys only the shortfall and verifies items arrived.

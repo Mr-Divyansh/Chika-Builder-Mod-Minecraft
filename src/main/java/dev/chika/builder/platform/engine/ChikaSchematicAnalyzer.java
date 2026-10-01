@@ -1,4 +1,4 @@
-package dev.chika.builder.platform.baritone;
+package dev.chika.builder.platform.engine;
 
 import baritone.api.BaritoneAPI;
 import baritone.api.schematic.IStaticSchematic;
@@ -32,7 +32,7 @@ import java.util.Optional;
  * a material to acquire. Neither are blocks with no item form, which cannot be
  * supplied from an inventory at all.
  */
-public final class BaritoneSchematicAnalyzer implements SchematicAnalyzer {
+public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
 
     /** Guard against absurd files; a build this size is not playable anyway. */
     private static final int MAX_VOLUME = 8_000_000;

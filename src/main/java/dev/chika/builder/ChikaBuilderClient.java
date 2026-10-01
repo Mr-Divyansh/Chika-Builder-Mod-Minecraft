@@ -13,9 +13,9 @@ import dev.chika.builder.command.ChikaBuildCommand;
 import dev.chika.builder.command.ChikaBuilderCommand;
 import dev.chika.builder.command.CommandLockdown;
 import dev.chika.builder.config.ChikaConfig;
-import dev.chika.builder.platform.baritone.BaritoneBuildService;
-import dev.chika.builder.platform.baritone.BaritoneSchematicAnalyzer;
-import dev.chika.builder.platform.baritone.MinecraftPlayerContext;
+import dev.chika.builder.platform.engine.ChikaBuildService;
+import dev.chika.builder.platform.engine.ChikaSchematicAnalyzer;
+import dev.chika.builder.platform.engine.MinecraftPlayerContext;
 import dev.chika.builder.schematic.SchematicLocator;
 import dev.chika.builder.ui.ChikaSettingsScreen;
 import dev.chika.builder.ui.WatermarkHud;
@@ -91,7 +91,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         }
 
         this.locator = new SchematicLocator(schematicsDir);
-        this.buildService = new BaritoneBuildService();
+        this.buildService = new ChikaBuildService();
 
         // Settings (watermark ON/OFF, default ON) and the branding surfaces.
         ChikaConfig.load();
@@ -101,7 +101,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         // and auto-shop if the player has enabled them. Reads the player's real
         // gamemode only - it never changes it.
         PlayerContext player = new MinecraftPlayerContext();
-        SchematicAnalyzer analyzer = new BaritoneSchematicAnalyzer();
+        SchematicAnalyzer analyzer = new ChikaSchematicAnalyzer();
         PurchaseOrchestrator purchases = PurchaseOrchestrator.usingRealRegistry(player::countItem);
 
         this.coordinator = new BuildCoordinator(this.buildService, analyzer, player, purchases,
@@ -181,13 +181,13 @@ public final class ChikaBuilderClient implements ClientModInitializer {
      * removes everything registered around it.
      */
     public void registerAndLockDown() {
-        IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+        IBaritone engine = BaritoneAPI.getProvider().getPrimaryBaritone();
 
-        ICommand command = new ChikaBuildCommand(baritone, this.coordinator, this.locator);
-        baritone.getCommandManager().getRegistry().register(command);
+        ICommand command = new ChikaBuildCommand(engine, this.coordinator, this.locator);
+        engine.getCommandManager().getRegistry().register(command);
 
         // Settings command: #chika_builder creative|shop true|false
-        baritone.getCommandManager().getRegistry().register(new ChikaBuilderCommand(baritone));
+        engine.getCommandManager().getRegistry().register(new ChikaBuilderCommand(engine));
 
         this.enforceLockdown();
     }
