@@ -26,7 +26,38 @@ still builds automatically with no separate navigation commands.
 |---|---|
 | Settings / about screen | "Chika Builder" title, with "D Web Studio" beneath it |
 | HUD watermark | Small, faint "D Web Studio" in the bottom-right corner |
+| Mods screen | The Chika Builder logo instead of the default `?` placeholder |
 | Mod metadata | Listed as an author in the mod list |
+
+### Mod icon
+
+The mod icon lives at `src/main/resources/assets/chika-builder/icon.png` and is
+registered through the standard Fabric key:
+
+```json
+"icon": "assets/chika-builder/icon.png"
+```
+
+Fabric renders that resource everywhere a mod's icon appears — the Mods screen,
+the mod list entry, and dependency/tooltip panels — so no code is involved and
+the icon can never drift from the metadata.
+
+The image is 128×128 PNG, the size Fabric expects for a mod icon. It is
+downscaled from the 1254×1254 original with a progressive area-average filter,
+which keeps the logo crisp when the Mods screen draws it at 32×32.
+
+Two properties are deliberate and guarded by `ModIconTest`:
+
+- **Square, so it is never stretched.** Fabric draws the icon into a square slot;
+  a non-square image would be letterboxed or distorted. The test asserts
+  `width == height` and that the edge is at least 128 px.
+- **Stored under the mod id.** The path must match the `id` in
+  `fabric.mod.json`, or Fabric cannot resolve it and silently falls back to `?`.
+  The test asserts both stay in sync.
+
+The source artwork is fully opaque (`Format24bppRgb`, no alpha channel), so
+there was no transparency to preserve. The icon is saved as 32-bit ARGB anyway,
+so it stays correct if transparent corners are added later.
 
 ### Watermark setting
 
@@ -166,6 +197,7 @@ Building, movement, pathing and block verification are handled automatically.
 | Verify placed blocks | Baritone re-checks blocks around the build each tick (`builderTickScanRadius = 1`) |
 | Skip blocks already correct | With `buildIgnoreExisting = false`, Baritone only fixes blocks that do not match |
 | Chika Builder branding | `fabric.mod.json` id `chika-builder`, name "Chika Builder"; all chat output |
+| Mod icon | `assets/chika-builder/icon.png`, shown in the Mods screen instead of `?` |
 
 ## Architecture
 
@@ -208,9 +240,9 @@ building or block placement — this is enforced by a unit test.
 .\gradlew.bat test
 ```
 
-12 tests covering the branding strings (including a guard that they contain no
-URLs), the watermark default/toggle/persistence/corrupt-file behaviour, and the
-layering rules above.
+25 tests covering the branding strings (including a guard that they contain no
+URLs), the watermark default/toggle/persistence/corrupt-file behaviour, the
+mod icon (registered, packaged, decodable, square), and the layering rules above.
 
 ## Building from source
 

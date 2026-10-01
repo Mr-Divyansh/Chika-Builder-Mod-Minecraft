@@ -3,6 +3,7 @@
   "id": "chika-builder",
   "version": "${version}",
   "name": "Chika Builder",
+  "icon": "assets/chika-builder/icon.png",
   "description": "CHIKA BUILDER by D Web Studio. Builds your schematics automatically with a single command: #chika_build <schematic>.schematic",
   "authors": [
     "Chika",
