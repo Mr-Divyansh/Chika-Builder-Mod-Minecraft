@@ -57,10 +57,15 @@ class MaterialPlannerTest {
                 "creative must not be assumed when the player is not in Creative");
         assertFalse(notCreative.canProceed());
 
-        // Setting on AND genuinely in Creative -> granted.
+        // Setting on AND genuinely in Creative -> routed to Creative. It is NOT
+        // satisfied yet: the blocks still have to be handed over, so the plan
+        // reports that Creative is required instead of claiming it is done.
         MaterialPlan inCreative = MaterialPlanner.plan(needed, true, true, false);
         assertEquals(MaterialResolution.CREATIVE, inCreative.needs().get(0).resolution());
-        assertTrue(inCreative.canProceed());
+        assertFalse(inCreative.canProceed(),
+                "a Creative plan is only satisfied once the blocks are in the inventory");
+        assertTrue(inCreative.requiresCreative());
+        assertEquals(1, inCreative.toAcquireCreatively().size());
     }
 
     @Test
@@ -172,5 +177,27 @@ class MaterialPlannerTest {
         assertEquals(MaterialResolution.ALREADY_PLACED, plan.needs().get(0).resolution(),
                 "satisfied materials are listed before blocking ones");
         assertEquals(MaterialResolution.MISSING, plan.needs().get(1).resolution());
+    }
+
+    @Test
+    void aCreativePlanListsExactlyWhatMustBeHandedOver() {
+        MaterialPlan plan = MaterialPlanner.plan(List.of(
+                need(STONE, 248, 200, 0),   // 48 outstanding -> Creative
+                need(PLANKS, 96, 96, 0)),   // already built -> nothing needed
+                true, true, false);
+
+        assertTrue(plan.requiresCreative());
+        assertEquals(1, plan.toAcquireCreatively().size(),
+                "only the genuinely short material is taken from Creative");
+        assertEquals(48, plan.toAcquireCreatively().get(0).shortfall());
+    }
+
+    @Test
+    void creativeIsNotRequiredWhenNothingIsShort() {
+        MaterialPlan plan = MaterialPlanner.plan(
+                List.of(need(STONE, 248, 248, 0)), false, false, false);
+
+        assertFalse(plan.requiresCreative());
+        assertTrue(plan.toAcquireCreatively().isEmpty());
     }
 }

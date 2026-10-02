@@ -33,7 +33,7 @@ asked for. Chika Builder does one job: it builds a schematic you point it at.
 | FR-4 | Parse the schematic, derive required blocks, anchor at the player's feet | `SchematicAnalyzer` |
 | FR-5 | Skip blocks already correct in the world — never re-bought, never re-placed | `BuildCoordinatorTest.resumeDoesNotRebuildBlocksThatAreAlreadyCorrect` |
 | FR-6 | Supply ladder: already-placed → inventory → creative → shop → pause | `MaterialPlannerTest.planIsOrderedByThePriorityLadder` |
-| FR-7 | Creative applies only when the player is *actually* in Creative, and never changes the gamemode | `BuildCoordinatorTest.creativeWorksOnlyWhenThePlayerIsActuallyInCreative` |
+| FR-7 | Creative applies only when the player is *actually* in Creative, never changes the gamemode, and only counts a hand-over the inventory confirms | `BuildCoordinatorTest.creativeWorksOnlyWhenThePlayerIsActuallyInCreative`, `.aCreativeHandoverThatDeliversNothingPausesTheBuild`, `.aPartialHandoverPausesAndReportsTheShortfall`, `CreativeAcquisitionTest` |
 | FR-8 | `creative` / `shop` settings persist across sessions | `ChikaConfigTest` |
 | FR-9 | Pause with an exact list of what is missing | `BuildCoordinatorTest.missingMaterialsPauseAndReportExactlyWhatIsMissing` |
 | FR-10 | Resume from where it stopped, without redoing finished blocks | `BuildCoordinatorTest.aPausedBuildResumesOnceTheItemsArrive` |
@@ -51,6 +51,9 @@ asked for. Chika Builder does one job: it builds a schematic you point it at.
   command again.
 - Settings are available both as `#chika_builder …` and from a settings screen
   with a keybind that ships unbound.
+- Tab completion is trustworthy: `#chika_builder ` offers only the setting names,
+  and `#chika_builder creative ` offers only the values the command accepts
+  (`true`/`false`), filtered by whatever has been typed so far.
 - Defaults are safe: watermark on, creative **off**, shop **off**.
 
 ## Quality requirements

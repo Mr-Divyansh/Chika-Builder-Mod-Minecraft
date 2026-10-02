@@ -43,12 +43,22 @@ promised yet.
   whole `builder/build/` package) and extended with secret patterns.
 - Test suite green (see CHANGELOG for the shipped set).
 
+### Phase 6 — Verified Creative supply (unreleased)
+- Creative is a real supply rung, not an assumption: the missing blocks are
+  handed into the inventory through the game's own Creative hand-over and the
+  inventory is re-counted afterwards.
+- A hand-over that delivers nothing, or only part of the shortfall, is reported
+  and the build pauses on the remainder. The gamemode is still only ever read.
+- `#chika_builder creative <TAB>` completes `true` / `false` again — the
+  `args.has(1)` regression that hid the values is fixed and test-covered.
+
 ## Current
 
-**v1.0.0 — released.** The full loop works end to end: `#chika_build
-castle.schematic` → locate → parse → compare with world → plan supply →
-place → verify → stop cleanly. Fixes and documentation only; no new features
-are being added.
+**v1.0.0 released; Creative supply verification is the current work.** The full
+loop works end to end: `#chika_build castle.schematic` → locate → parse → compare
+with world → plan supply → hand over from Creative and/or buy from the shop →
+place → verify → stop cleanly. The unreleased work is the *verified* Creative rung
+(Phase 6) and the boolean tab-completion fix; both are test-covered.
 
 ## Future (ideas, not commitments)
 

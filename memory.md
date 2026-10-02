@@ -33,8 +33,9 @@ Rules (`ChikaConfig`):
 - **Backwards compatible:** unknown extra keys are ignored.
 
 The two boolean settings are the *permission*, not the *state*: turning
-`creative` on never changes your gamemode, and turning `shop` on never spends
-money by itself.
+`creative` on never changes your gamemode (it only lets blocks be handed over
+*while* you are genuinely in Creative, and each hand-over is confirmed in your
+inventory before it counts), and turning `shop` on never spends money by itself.
 
 ## Runtime state (in-memory only)
 
@@ -54,6 +55,9 @@ money by itself.
   sync with reality.
 - **Purchases.** Nothing is remembered about what was bought; the inventory is
   re-read live every time.
+- **Creative hand-overs.** Nothing is remembered about what Creative supplied
+  either; like purchases, the inventory is re-read live, so a hand-over is never
+  trusted from a record — only from the current count.
 - **Schematic contents.** Files are read on demand; nothing is cached to disk.
 
 ## Where the inputs live

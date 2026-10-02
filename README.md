@@ -18,7 +18,7 @@ Builder places the blocks for you.
 - **Automatic block placement** — you don't place anything by hand.
 - **Clear chat feedback** — every build tells you what happened: it started, it was rejected, or it paused.
 - **Build pause and resume** — when materials run out, the build pauses, lists exactly what is missing, and continues from where it stopped once you have the items.
-- **Creative building mode** — optional and off by default. It never changes your game mode; it only applies when you are actually in Creative.
+- **Creative building mode** — optional and off by default. When you are actually in Creative, Chika Builder hands the missing blocks over from Creative and confirms they arrived. It never changes your game mode; it only reads it.
 - **Optional auto-shop purchasing** — off by default, so Chika Builder never spends your money unless you ask it to.
 - **Filename tab-completion** — press Tab to see the schematics you have.
 - **D Web Studio branding** — settings screen, a faint corner watermark, and the mod icon.
@@ -151,7 +151,7 @@ Chika Builder: no schematic named 'castle' in schematics.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `creative` | `false` | Lets Chika Builder use Creative-mode building. It only applies when you are actually in Creative, and it never changes your game mode. |
+| `creative` | `false` | Lets Chika Builder take missing blocks from Creative. It only applies when you are actually in Creative, it confirms the blocks arrived, and it never changes your game mode. |
 | `shop` | `false` | Lets Chika Builder buy missing materials automatically. |
 
 ```text
@@ -181,7 +181,7 @@ first one that works:
 
 1. **Already built** — the block is already correct in the world, so it is skipped.
 2. **Your inventory** — you are carrying enough of the item.
-3. **Creative** — only if you turned `creative` on *and* you are actually in Creative.
+3. **Creative** — only if you turned `creative` on *and* you are actually in Creative. The blocks are handed over and then counted again, so a hand-over that did not fit is reported rather than assumed.
 4. **Shop** — only if you turned `shop` on.
 5. **Pause** — nothing could supply it, so the build stops and tells you what is missing.
 
@@ -259,7 +259,8 @@ These are the honest limits of the current release:
   "no shop is available" message. A purchase is never faked.
 - **Only `.schematic` and `.litematic` files** are recognised.
 - **Creative building never changes your game mode.** It only applies when you
-  are already in Creative; otherwise the build pauses and says so.
+  are already in Creative, and it only counts blocks it has confirmed reached
+  your inventory; otherwise the build pauses and says so.
 - **Schematics are read from `.minecraft/schematics/` only** — nothing outside
   that folder can be reached by a command.
 - **Minecraft 26.1.2 exactly.** The mod declares that single version; no other

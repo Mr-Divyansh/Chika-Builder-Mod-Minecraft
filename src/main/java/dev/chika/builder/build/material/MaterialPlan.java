@@ -37,6 +37,27 @@ public record MaterialPlan(List<MaterialNeed> needs, boolean canProceed) {
                 .toList();
     }
 
+    /**
+     * Only the entries Creative still has to hand over.
+     *
+     * <p>One entry per block type that is genuinely still short, so a partially
+     * granted material is never re-requested in full.
+     */
+    public List<MaterialNeed> toAcquireCreatively() {
+        return this.needs.stream()
+                .filter(need -> need.resolution() == MaterialResolution.CREATIVE)
+                .filter(need -> need.shortfall() > 0)
+                .toList();
+    }
+
+    /**
+     * True when something must be taken from Creative before this build can
+     * start, i.e. the plan leans on the Creative rung at all.
+     */
+    public boolean requiresCreative() {
+        return !toAcquireCreatively().isEmpty();
+    }
+
     /** Blocks that already satisfy the schematic, so they are never re-obtained. */
     public int alreadyPlacedCount() {
         return totalOf(MaterialResolution.ALREADY_PLACED);

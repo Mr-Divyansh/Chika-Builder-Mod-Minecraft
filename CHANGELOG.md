@@ -4,6 +4,26 @@ All notable changes to Chika Builder.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are tagged with the mod version in `gradle.properties`.
 
+## [Unreleased]
+
+### Added
+
+- **Creative supply is real, and verified.** The Creative rung no longer treats
+  "Creative will supply this" as satisfied: it hands the missing blocks into the
+  player's inventory and re-counts the inventory afterwards, so a hand-over only
+  counts when the items genuinely arrived. A partial hand-over (a full inventory,
+  say) is reported as such and the build pauses on the remainder. The gamemode is
+  still only ever *read*, never changed, and the fact is re-checked immediately
+  before every hand-over.
+
+### Fixed
+
+- **`#chika_builder creative <TAB>` now completes `true` / `false`.** Completion
+  used `args.has(1)`, which is already true while the *value* is being typed, so
+  only the setting names were ever offered. It now tests the exact argument count
+  and filters the value against the argument under the cursor, so `creative t`
+  completes to `true` and `creative f` to `false`.
+
 ## [1.0.0] — initial public release
 
 ### Added

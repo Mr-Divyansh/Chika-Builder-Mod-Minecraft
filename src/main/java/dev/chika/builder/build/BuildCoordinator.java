@@ -1,5 +1,8 @@
 package dev.chika.builder.build;
 
+import dev.chika.builder.build.material.CreativeAcquisition;
+import dev.chika.builder.build.material.CreativeReport;
+import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.build.material.MaterialNeed;
 import dev.chika.builder.build.material.MaterialPlan;
 import dev.chika.builder.build.material.MaterialPlanner;
@@ -23,6 +26,10 @@ import java.util.List;
  *   -> auto-shop (only if shop=true) -> otherwise pause
  * </pre>
  *
+ * <p>Both optional rungs are <b>verified</b>: finishing a Creative hand-over or a
+ * purchase is not enough, because the re-plan step below re-reads the live
+ * inventory and the build only starts once the blocks are genuinely present.
+ *
  * <p>All collaborators are injected, so the whole coordinator - including the
  * pause and resume decisions - is unit testable without a running game.
  */
@@ -32,6 +39,7 @@ public final class BuildCoordinator {
     private final SchematicAnalyzer analyzer;
     private final PlayerContext player;
     private final PurchaseOrchestrator purchases;
+    private final CreativeAcquisition creative;
     private final Settings settings;
 
     /** Which optional supply methods are switched on, persisted in the config. */
@@ -44,11 +52,14 @@ public final class BuildCoordinator {
 
     public BuildCoordinator(BuildService buildService, SchematicAnalyzer analyzer,
                             PlayerContext player, PurchaseOrchestrator purchases,
-                            Settings settings) {
+                            CreativeSupplier creativeSupplier, Settings settings) {
         this.buildService = buildService;
         this.analyzer = analyzer;
         this.player = player;
         this.purchases = purchases;
+        // Creative blocks are read back through the same live inventory the plan
+        // uses, so a hand-over is only ever believed once the items are there.
+        this.creative = new CreativeAcquisition(creativeSupplier, player::countItem);
         this.settings = settings;
     }
 
@@ -73,30 +84,44 @@ public final class BuildCoordinator {
         MaterialPlan plan = planWith(required);
 
         PurchaseReport report = PurchaseReport.nothingToDo();
+        CreativeReport creativeReport = CreativeReport.nothingToDo();
 
         if (!plan.canProceed()) {
-            String creativeNote = creativeMisconfiguration();
+            // 3. Hand over whatever Creative must supply (only when creative=true
+            //    AND the player is genuinely in Creative).
+            if (plan.requiresCreative()) {
+                creativeReport = this.creative.acquire(plan);
 
-            // 3. Try the shop for whatever is still short (only when shop=true).
+                // Re-plan from the live inventory so a partial hand-over (a full
+                // inventory, say) leaves a correct picture of what is still short.
+                plan = planWith(required);
+
+                if (!plan.canProceed()) {
+                    return BuildOutcome.paused(plan, report, creativeReport,
+                            describeMissing(plan), creativeReason(creativeReport));
+                }
+            }
+
+            // 4. Try the shop for whatever is still short (only when shop=true).
             report = this.purchases.fulfil(plan);
 
             if (!report.canContinue()) {
-                // 4. Purchase failed, or nothing could supply the blocks: pause.
-                return BuildOutcome.paused(plan, report, describeMissing(plan),
-                        reasonFor(report, creativeNote));
+                // 5. Purchase failed, or nothing could supply the blocks: pause.
+                return BuildOutcome.paused(plan, report, creativeReport,
+                        describeMissing(plan), reasonFor(report, creativeReport));
             }
 
-            // 5. Purchases reported success - re-plan from the live inventory so
+            // 6. Purchases reported success - re-plan from the live inventory so
             //    the build only starts once the items are confirmed present.
             plan = planWith(required);
 
             if (!plan.canProceed()) {
-                return BuildOutcome.paused(plan, report, describeMissing(plan),
-                        reasonFor(report, creativeNote));
+                return BuildOutcome.paused(plan, report, creativeReport,
+                        describeMissing(plan), reasonFor(report, creativeReport));
             }
         }
 
-        return start(schematic, origin, plan, report);
+        return start(schematic, origin, plan, report, creativeReport);
     }
 
     /**
@@ -123,7 +148,7 @@ public final class BuildCoordinator {
 
     /** Starts (or resumes) the build through the backend. */
     private BuildOutcome start(File schematic, BuildService.Origin origin, MaterialPlan plan,
-                               PurchaseReport report) {
+                               PurchaseReport report, CreativeReport creativeReport) {
         try {
             this.buildService.startBuild(schematic, origin);
         } catch (BuildException e) {
@@ -131,12 +156,16 @@ public final class BuildCoordinator {
         }
 
         String summary = "Building '" + schematic.getName() + "' from " + origin + ".";
+        if (!creativeReport.granted().isEmpty()) {
+            summary = summary + " Supplied " + creativeReport.granted().size()
+                    + " material type(s) from Creative.";
+        }
         if (!report.purchased().isEmpty()) {
             summary = summary + " Purchased " + report.purchased().size()
                     + " missing material type(s).";
         }
 
-        return BuildOutcome.started(plan, report, summary);
+        return BuildOutcome.started(plan, report, creativeReport, summary);
     }
 
     /**
@@ -152,6 +181,8 @@ public final class BuildCoordinator {
             // ALREADY_PLACED and INVENTORY need nothing, so they are not listed.
             // MISSING means no method could cover it.
             // SHOP means we tried to buy it and could not.
+            // CREATIVE means the hand-over did not arrive (checked by the caller,
+            // which reports the Creative reason alongside this list).
             if (need.resolution() == MaterialResolution.MISSING
                     || need.resolution() == MaterialResolution.SHOP) {
                 lines.add(need.describeOutstanding());
@@ -162,22 +193,44 @@ public final class BuildCoordinator {
     }
 
     /** The most useful single explanation for why the build stopped. */
-    private static String reasonFor(PurchaseReport report, String creativeNote) {
+    private String reasonFor(PurchaseReport report, CreativeReport creativeReport) {
         if (!report.failures().isEmpty()) {
             return report.failures().get(0).reason();
         }
+        String creativeNote = creativeReason(creativeReport);
         if (creativeNote != null) {
             return creativeNote;
+        }
+        String mismatch = creativeMisconfiguration();
+        if (mismatch != null) {
+            return mismatch;
         }
         return "Not enough materials in the inventory.";
     }
 
     /**
-     * Explains a Creative mismatch, or {@code null} when there is none.
+     * Explains a Creative shortfall, or {@code null} when Creative is not the
+     * reason the build stopped.
      *
-     * <p>Chika Builder never changes the player's gamemode. It only reads it,
-     * and when Creative is enabled but the player is not actually in Creative
-     * the situation is reported instead of being worked around or faked.
+     * <p>Chika Builder never changes the player's gamemode. Creative is only
+     * used because the player <em>is</em> in Creative, so a failure here is
+     * reported (inventory full, hand-over not confirmed) rather than worked
+     * around or faked.
+     */
+    private static String creativeReason(CreativeReport creativeReport) {
+        if (creativeReport.failures().isEmpty()) {
+            return null;
+        }
+        return creativeReport.failures().get(0).reason();
+    }
+
+    /**
+     * Explains a Creative setting that cannot be honoured, or {@code null} when
+     * there is nothing to explain.
+     *
+     * <p>Chika Builder never changes the player's gamemode. It only reads it, and
+     * when Creative is enabled but the player is not actually in Creative the
+     * situation is reported instead of being worked around or faked.
      */
     private String creativeMisconfiguration() {
         if (this.settings.isCreativeEnabled() && !this.player.isActuallyInCreative()) {

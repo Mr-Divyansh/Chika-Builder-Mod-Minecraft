@@ -35,17 +35,17 @@ public record MaterialNeed(ItemAmount item, int required, int alreadyPlaced,
     }
 
     /**
-     * True when nothing further has to be acquired: either the world or the
-     * inventory already covers it, or Creative supplies it.
+     * True when nothing further has to be acquired: the world already has it or
+     * the player is holding it.
      *
-     * <p>A {@link MaterialResolution#SHOP} entry is deliberately <b>not</b>
-     * satisfied - it is still waiting to be purchased. Treating it as done
-     * would start a build with materials the player never paid for.
+     * <p>{@link MaterialResolution#CREATIVE} and {@link MaterialResolution#SHOP}
+     * are deliberately <b>not</b> satisfied. Both are <i>plans</i>, not holdings:
+     * the blocks still have to be handed over or bought, and treating either as
+     * done would start a build with materials the player does not actually have.
      */
     public boolean isSatisfied() {
         return this.resolution == MaterialResolution.ALREADY_PLACED
-                || this.resolution == MaterialResolution.INVENTORY
-                || this.resolution == MaterialResolution.CREATIVE;
+                || this.resolution == MaterialResolution.INVENTORY;
     }
 
     /**

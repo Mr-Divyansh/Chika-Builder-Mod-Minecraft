@@ -81,7 +81,8 @@ Three product decisions are visible to the player on purpose:
 
 1. A paused build always lists the actual missing blocks.
 2. `shop` never pretends — with no adapter, or a failed purchase, it pauses.
-3. `creative` never changes the game mode; a mismatch is explained.
+3. `creative` never changes the game mode, and it only counts blocks it has
+   confirmed reached the inventory; a mismatch is explained.
 
 The alternative (silently skipping, silently "buying", silently switching to
 Creative) would make the tool unpredictable, so it is treated as a design bug,

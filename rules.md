@@ -5,9 +5,9 @@ concrete cost, and each is (or should be) covered by a test.
 
 ## Behaviour
 
-1. **Never fake an outcome.** A purchase is only reported as successful after
-   the items are confirmed in the inventory. A build is only reported as
-   started after the backend accepted it.
+1. **Never fake an outcome.** A purchase — or a Creative hand-over — is only
+   reported as successful after the items are confirmed in the inventory. A build
+   is only reported as started after the backend accepted it.
 2. **Pause instead of guessing.** Missing materials, no shop adapter, a failed
    purchase, an unreadable file → a clear `PAUSED` or `REJECTED` report. Never
    a silent skip, never a crash.

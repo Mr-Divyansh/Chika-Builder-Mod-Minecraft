@@ -1,5 +1,6 @@
 package dev.chika.builder.build;
 
+import dev.chika.builder.build.material.CreativeReport;
 import dev.chika.builder.build.material.ItemAmount;
 import dev.chika.builder.build.material.MaterialNeed;
 import dev.chika.builder.build.material.MaterialPlan;
@@ -33,8 +34,9 @@ class BuildOutcomeTest {
                                 "minecraft:stone", "Stone", 248),
                         "Insufficient money / item unavailable in shop.")));
 
-        BuildOutcome outcome = BuildOutcome.paused(plan, purchases, List.of(
-                "Stone x248", "Oak Planks x96"),
+        BuildOutcome outcome = BuildOutcome.paused(plan, purchases,
+                dev.chika.builder.build.material.CreativeReport.nothingToDo(),
+                List.of("Stone x248", "Oak Planks x96"),
                 "Insufficient money / item unavailable in shop.");
 
         List<String> lines = outcome.lines();
@@ -54,6 +56,7 @@ class BuildOutcomeTest {
     void pauseReportTellsThePlayerHowToResume() {
         BuildOutcome outcome = BuildOutcome.paused(
                 new MaterialPlan(List.of(), false), PurchaseReport.nothingToDo(),
+                dev.chika.builder.build.material.CreativeReport.nothingToDo(),
                 List.of(), "reason");
 
         assertTrue(outcome.lines().stream().anyMatch(line -> line.contains("#chika_build")),
@@ -64,6 +67,7 @@ class BuildOutcomeTest {
     void aStartedBuildReportsTheFileAndOrigin() {
         BuildOutcome outcome = BuildOutcome.started(
                 new MaterialPlan(List.of(), true), PurchaseReport.nothingToDo(),
+                dev.chika.builder.build.material.CreativeReport.nothingToDo(),
                 "Building 'castle.schematic' from (10, 64, -20).");
 
         assertTrue(outcome.isStarted());

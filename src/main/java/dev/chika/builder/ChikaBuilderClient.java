@@ -6,6 +6,7 @@ import baritone.api.command.ICommand;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.build.BuildService;
+import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.build.material.PlayerContext;
 import dev.chika.builder.build.material.SchematicAnalyzer;
 import dev.chika.builder.build.shop.PurchaseOrchestrator;
@@ -15,6 +16,7 @@ import dev.chika.builder.command.CommandLockdown;
 import dev.chika.builder.config.ChikaConfig;
 import dev.chika.builder.platform.engine.ChikaBuildService;
 import dev.chika.builder.platform.engine.ChikaSchematicAnalyzer;
+import dev.chika.builder.platform.engine.CreativeInventorySupplier;
 import dev.chika.builder.platform.engine.MinecraftPlayerContext;
 import dev.chika.builder.schematic.SchematicLocator;
 import dev.chika.builder.ui.ChikaSettingsScreen;
@@ -99,13 +101,15 @@ public final class ChikaBuilderClient implements ClientModInitializer {
 
         // The supply chain: read the schematic, check inventory, then Creative
         // and auto-shop if the player has enabled them. Reads the player's real
-        // gamemode only - it never changes it.
+        // gamemode only - it never changes it, and the supplier re-checks that
+        // fact immediately before every hand-over.
         PlayerContext player = new MinecraftPlayerContext();
         SchematicAnalyzer analyzer = new ChikaSchematicAnalyzer();
         PurchaseOrchestrator purchases = PurchaseOrchestrator.usingRealRegistry(player::countItem);
+        CreativeSupplier creativeSupplier = new CreativeInventorySupplier();
 
         this.coordinator = new BuildCoordinator(this.buildService, analyzer, player, purchases,
-                new BuildCoordinator.Settings() {
+                creativeSupplier, new BuildCoordinator.Settings() {
                     @Override
                     public boolean isCreativeEnabled() {
                         return ChikaConfig.get().isCreativeEnabled();

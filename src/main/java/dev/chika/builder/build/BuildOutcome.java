@@ -1,5 +1,6 @@
 package dev.chika.builder.build;
 
+import dev.chika.builder.build.material.CreativeReport;
 import dev.chika.builder.build.material.MaterialPlan;
 import dev.chika.builder.build.shop.PurchaseReport;
 
@@ -14,7 +15,7 @@ import java.util.List;
  * here rather than in the command so the reporting is testable.
  */
 public record BuildOutcome(BuildStatus status, MaterialPlan plan, PurchaseReport purchases,
-                           List<String> lines) {
+                           CreativeReport creative, List<String> lines) {
 
     public BuildOutcome {
         lines = List.copyOf(lines);
@@ -37,7 +38,7 @@ public record BuildOutcome(BuildStatus status, MaterialPlan plan, PurchaseReport
      * the player sees what is genuinely still needed.
      */
     public static BuildOutcome paused(MaterialPlan plan, PurchaseReport purchases,
-                                      List<String> missing, String reason) {
+                                      CreativeReport creative, List<String> missing, String reason) {
 
         List<String> lines = new ArrayList<>();
         lines.add("Build paused - missing materials.");
@@ -60,19 +61,25 @@ public record BuildOutcome(BuildStatus status, MaterialPlan plan, PurchaseReport
             }
         }
 
+        if (creative != null) {
+            for (String failure : creative.describeFailures()) {
+                lines.add("  " + failure);
+            }
+        }
+
         lines.add("Obtain the items, then run #chika_build again to resume.");
 
-        return new BuildOutcome(BuildStatus.PAUSED, plan, purchases, lines);
+        return new BuildOutcome(BuildStatus.PAUSED, plan, purchases, creative, lines);
     }
 
     /** Builds a successful start report. */
     public static BuildOutcome started(MaterialPlan plan, PurchaseReport purchases,
-                                       String summary) {
-        return new BuildOutcome(BuildStatus.STARTED, plan, purchases, List.of(summary));
+                                       CreativeReport creative, String summary) {
+        return new BuildOutcome(BuildStatus.STARTED, plan, purchases, creative, List.of(summary));
     }
 
     /** Builds a rejection report (bad schematic name, etc). */
     public static BuildOutcome rejected(String reason) {
-        return new BuildOutcome(BuildStatus.REJECTED, null, null, List.of(reason));
+        return new BuildOutcome(BuildStatus.REJECTED, null, null, null, List.of(reason));
     }
 }

@@ -60,7 +60,31 @@ Two safety properties, both test-covered:
 - Nothing is routed to the shop that an earlier rung already covers, so the
   shop is never asked for blocks you already own.
 
-## 5. Supply what is missing (only if `shop` is on)
+`CREATIVE` and `SHOP` are **plans, not holdings**: a block routed to either one
+is *not* satisfied, and the build cannot start until the blocks have really been
+handed over (step 5) or bought (step 6).
+
+## 5. Hand over from Creative (only if the plan needs it)
+
+`CreativeAcquisition.acquire(plan)` takes every block the plan routed to
+Creative and proves each one arrived:
+
+1. re-checks that Creative is genuinely available (the setting is a permission,
+   the gamemode is the fact);
+2. asks the injected `CreativeSupplier` for the **shortfall** only;
+3. re-counts the inventory afterwards and treats only a real increase as a
+   hand-over.
+
+`CreativeInventorySupplier` is the Minecraft-side implementation: it uses the
+game's own Creative hand-over (`handleCreativeModeItemAdd`) and mirrors each slot
+write into the open menu, exactly as the Creative inventory does. It never sends a
+packet by hand and never changes the gamemode.
+
+A hand-over that delivers nothing, or only part of the shortfall (a full
+inventory, say), is reported with the exact numbers and the build **pauses** on
+the remainder. Nothing is ever counted as supplied on hope.
+
+## 6. Supply what is missing (only if `shop` is on)
 
 `PurchaseOrchestrator.fulfil(plan)`:
 
@@ -78,7 +102,7 @@ a success is only claimed when the items are confirmed in inventory.
 Chika Builder ships **no adapter**, because `/shop` is server-specific. With
 none registered, `shop=true` results in an honest pause.
 
-## 6. Build
+## 7. Build
 
 If everything is covered, `BuildCoordinator` calls
 `BuildService.startBuild(schematic, origin)` →
@@ -92,14 +116,14 @@ Outcome: **`STARTED`** with the file and origin, e.g.
 Building 'castle.schematic' from (120, 64, -45).
 ```
 
-## 7. Verify and place
+## 8. Verify and place
 
 The engine places each block and re-checks the world as it works — Chika
 Builder never reports success for a placement it did not confirm. Chika's own
-verification lives at the *supply* boundary (step 5): no purchase is ever
-assumed to have worked.
+verification lives at the *supply* boundary (steps 5 and 6): no Creative
+hand-over and no purchase is ever assumed to have worked.
 
-## 8. Recover
+## 9. Recover
 
 Nothing is lost when a build stops:
 
@@ -126,12 +150,15 @@ Nothing is lost when a build stops:
 │  plan    │───────────────────┘
 └────┬─────┘
      ▼
-┌──────────┐  shop on  ┌──────────┐
-│  supply  │──────────▶│ purchase │── verified ──┐
-└────┬─────┘           └──────────┘              │
-     │ covered                                   │
-     ▼                                           ▼
-┌──────────────────────────────────────────────────┐
-│ build → verify → continue until complete → done  │
-└──────────────────────────────────────────────────┘
+┌──────────┐  creative on  ┌──────────────┐
+│  supply  │──────────────▶│ Creative     │── verified ──┐
+└────┬─────┘               │ hand-over    │              │
+     │                     └──────────────┘              │
+     │  shop on  ┌──────────┐                            │
+     ├──────────▶│ purchase │── verified ──┐             │
+     │           └──────────┘              │             │
+     │ covered                             ▼             ▼
+     ▼           ┌────────────────────────────────────────────┐
+     └──────────▶│ build → verify → continue → complete → done│
+                 └────────────────────────────────────────────┘
 ```

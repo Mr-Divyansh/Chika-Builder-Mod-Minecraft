@@ -6,6 +6,7 @@ import baritone.api.command.Command;
 import baritone.api.command.argument.IArgConsumer;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -15,6 +16,10 @@ import java.util.stream.Stream;
  *   #chika_builder creative true | false
  *   #chika_builder shop     true | false
  * </pre>
+ *
+ * <p>Both arguments complete: {@code #chika_builder } suggests {@code creative}
+ * and {@code shop}, and {@code #chika_builder creative } suggests {@code true}
+ * and {@code false}, filtered by whatever has been typed so far.
  *
  * <p>This is a Chika Builder command, not an engine command: it never enables an
  * engine feature and it is never about pathing. It only flips a persisted
@@ -28,7 +33,16 @@ public final class ChikaBuilderCommand extends Command {
     private static final String ARG_CREATIVE = "creative";
     private static final String ARG_SHOP = "shop";
 
-    private static final List<String> OPTIONS = List.of("creative", "shop");
+    private static final List<String> OPTIONS = List.of(ARG_CREATIVE, ARG_SHOP);
+
+    /**
+     * The two values {@code creative} and {@code shop} accept.
+     *
+     * <p>These are exactly the spellings {@link #execute} accepts. Keeping the
+     * two in step is what makes Tab completion trustworthy: it can only ever
+     * offer a value the command will actually take.
+     */
+    private static final List<String> VALUES = List.of("true", "false");
 
     public ChikaBuilderCommand(IBaritone engine) {
         super(engine, COMMAND_NAME);
@@ -57,14 +71,14 @@ public final class ChikaBuilderCommand extends Command {
         // Read exactly once: IArgConsumer.getString() advances the cursor, so
         // asking again would hand back the *value* instead of the setting name.
         String rawSetting = args.getString();
-        String setting = rawSetting.toLowerCase(java.util.Locale.ROOT);
+        String setting = rawSetting.toLowerCase(Locale.ROOT);
 
         if (!OPTIONS.contains(setting)) {
             say("Unknown setting '" + rawSetting + "'. Use: creative or shop.");
             return;
         }
 
-        String rawValue = args.getString().toLowerCase(java.util.Locale.ROOT);
+        String rawValue = args.getString().toLowerCase(Locale.ROOT);
 
         Boolean value = parseBoolean(rawValue);
         if (value == null) {
@@ -86,17 +100,40 @@ public final class ChikaBuilderCommand extends Command {
         }
     }
 
+    /**
+     * Suggests the setting name first, then its value.
+     *
+     * <p>The previous implementation asked {@code args.has(1)} and {@code
+     * args.has(2)}. {@code has(n)} means "at least {@code n}" and counts the
+     * argument currently being typed, so the ordinary {@code #chika_builder
+     * creative <TAB>} input (one argument plus the empty one being completed)
+     * satisfied "at least 1" first and only ever offered the setting names.
+     * Testing the exact counts fixes that, and reading the filter from
+     * {@code peek(0)} for the setting and {@code peek(1)} for the value -
+     * the argument under the cursor - rather than always reading the first
+     * argument keeps the partial "t"/"f" matching aimed at the value rather
+     * than at the setting the player already finished typing.
+     */
     @Override
     public Stream<String> tabComplete(String commandName, IArgConsumer args) {
-        if (args.has(1)) {
-            return OPTIONS.stream().filter(name -> name.startsWith(
-                    args.peekString().toLowerCase(java.util.Locale.ROOT))).sorted();
+        if (args.hasExactly(1)) {
+            return matching(OPTIONS, args.peek(0).getValue());
         }
-        if (args.has(2)) {
-            return Stream.of("true", "false").filter(value -> value.startsWith(
-                    args.peekString().toLowerCase(java.util.Locale.ROOT))).sorted();
+
+        if (args.hasExactly(2)) {
+            return matching(VALUES, args.peek(1).getValue());
         }
+
         return Stream.empty();
+    }
+
+    /** Every candidate starting with what has been typed for the current argument. */
+    private static Stream<String> matching(List<String> candidates, String rawTyped) {
+        String typed = rawTyped == null ? "" : rawTyped.toLowerCase(Locale.ROOT);
+
+        return candidates.stream()
+                .filter(candidate -> candidate.startsWith(typed))
+                .sorted();
     }
 
     /**

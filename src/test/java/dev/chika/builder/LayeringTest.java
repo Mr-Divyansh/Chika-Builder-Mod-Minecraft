@@ -1,7 +1,9 @@
 package dev.chika.builder;
 
 import dev.chika.builder.build.BuildService;
+import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.platform.engine.ChikaBuildService;
+import dev.chika.builder.platform.engine.CreativeInventorySupplier;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,6 +37,25 @@ class LayeringTest {
         assertFalse(dependsOnAny(dev.chika.builder.command.ChikaBuildCommand.class, "baritone."));
         assertFalse(dependsOnAny(dev.chika.builder.schematic.SchematicLocator.class, "baritone."));
         assertFalse(dependsOnAny(BuildService.class, "baritone."));
+    }
+
+    @Test
+    void engineSupplierImplementsTheCreativeSeam() {
+        CreativeSupplier supplier = new CreativeInventorySupplier();
+        assertTrue(supplier instanceof CreativeSupplier);
+        assertEquals("creative", supplier.describe());
+    }
+
+    @Test
+    void creativeSeamStaysBackendAgnostic() {
+        // The pure Creative seam must never mention the engine or Minecraft
+        // types, so the planner stays unit-testable without a running game.
+        assertFalse(dependsOnAny(CreativeSupplier.class, "baritone."));
+        assertFalse(dependsOnAny(CreativeSupplier.class, "net.minecraft."));
+        assertFalse(dependsOnAny(
+                dev.chika.builder.build.material.CreativeAcquisition.class, "baritone."));
+        assertFalse(dependsOnAny(
+                dev.chika.builder.build.material.CreativeAcquisition.class, "net.minecraft."));
     }
 
     @Test

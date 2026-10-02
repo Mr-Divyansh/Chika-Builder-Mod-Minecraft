@@ -2,8 +2,8 @@ package dev.chika.builder.platform.engine;
 
 import dev.chika.builder.build.material.PlayerContext;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.NonNullList;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -36,20 +36,28 @@ public final class MinecraftPlayerContext implements PlayerContext {
     @Override
     public int countItem(String itemId) {
         try {
-            Minecraft minecraft = Minecraft.getInstance();
-
-            if (minecraft.player == null) {
-                return 0;
-            }
-
-            return count(minecraft.player.getInventory(), itemId);
+            return countOf(net.minecraft.client.Minecraft.getInstance().player, itemId);
         } catch (Throwable t) {
             return 0;
         }
     }
 
-    /** Total number of matching items across the whole inventory. */
-    private static int count(Inventory inventory, String itemId) {
+    /**
+     * Total number of matching items across the player's whole inventory.
+     *
+     * <p>Shared with {@link CreativeInventorySupplier} so the "before" and
+     * "after" counts a Creative hand-over is verified against are taken the same
+     * way as the counts the plan was built from. That matters: verifying with a
+     * different counter could either over-report a hand-over or reject one that
+     * really happened.
+     *
+     * @return the count, or {@code 0} when there is no player or the id is unknown
+     */
+    static int countOf(net.minecraft.client.player.LocalPlayer player, String itemId) {
+        if (player == null) {
+            return 0;
+        }
+
         Identifier id;
         try {
             id = Identifier.parse(itemId);
@@ -57,10 +65,11 @@ public final class MinecraftPlayerContext implements PlayerContext {
             return 0;
         }
 
+        NonNullList<ItemStack> stacks = Inventories.storageStacks(player.getInventory());
         int total = 0;
 
-        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
-            ItemStack stack = inventory.getItem(slot);
+        for (int slot = 0; slot < stacks.size(); slot++) {
+            ItemStack stack = stacks.get(slot);
 
             if (stack == null || stack.isEmpty()) {
                 continue;

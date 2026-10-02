@@ -1,5 +1,6 @@
 package dev.chika.builder.build;
 
+import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.build.material.ItemAmount;
 import dev.chika.builder.build.material.MaterialNeed;
 import dev.chika.builder.build.material.MaterialResolution;
@@ -161,6 +162,51 @@ class BuildCoordinatorTest {
         }
     }
 
+    /** Hands blocks into the player's inventory, the way Creative really would. */
+    private static final class StubCreative implements CreativeSupplier {
+
+        private final StubPlayer player;
+        private final boolean available;
+        private final int capPerGrant;
+        private final List<String> requests = new ArrayList<>();
+
+        StubCreative(StubPlayer player, boolean available) {
+            this(player, available, Integer.MAX_VALUE);
+        }
+
+        /**
+         * @param capPerGrant how much a single hand-over can deliver, so a test
+         *                    can simulate a full inventory
+         */
+        StubCreative(StubPlayer player, boolean available, int capPerGrant) {
+            this.player = player;
+            this.available = available;
+            this.capPerGrant = capPerGrant;
+        }
+
+        @Override
+        public boolean isAvailable() {
+            return this.available;
+        }
+
+        @Override
+        public int grant(String itemId, int amount) {
+            this.requests.add(itemId + " x" + amount);
+            int delivered = Math.min(amount, this.capPerGrant);
+
+            if (delivered > 0) {
+                this.player.set(itemId, this.player.countItem(itemId) + delivered);
+            }
+
+            return delivered;
+        }
+
+        @Override
+        public String describe() {
+            return "stub";
+        }
+    }
+
     private static MaterialNeed need(String id, String label, int required,
                                     int placed, int held) {
         return new MaterialNeed(new ItemAmount(id, label, required), required, placed, held,
@@ -170,9 +216,16 @@ class BuildCoordinatorTest {
     private static BuildCoordinator coordinator(BuildService buildService, StubAnalyzer analyzer,
                                                 StubPlayer player, BuildCoordinator.Settings settings,
                                                 ShopAdapter adapter) {
+        return coordinator(buildService, analyzer, player, settings, adapter,
+                CreativeSupplier.NONE);
+    }
+
+    private static BuildCoordinator coordinator(BuildService buildService, StubAnalyzer analyzer,
+                                                StubPlayer player, BuildCoordinator.Settings settings,
+                                                ShopAdapter adapter, CreativeSupplier creative) {
         PurchaseOrchestrator purchases = new PurchaseOrchestrator(
                 () -> Optional.ofNullable(adapter), player::countItem);
-        return new BuildCoordinator(buildService, analyzer, player, purchases, settings);
+        return new BuildCoordinator(buildService, analyzer, player, purchases, creative, settings);
     }
 
     @Test
@@ -257,15 +310,118 @@ class BuildCoordinatorTest {
         assertTrue(paused.isPaused(), "creative must not be granted outside Creative");
         assertEquals(0, service.started);
 
-        // creative=true and genuinely in Creative -> proceeds.
+        // creative=true and genuinely in Creative, with a working Creative
+        // source -> the blocks are really handed over, then the build starts.
         RecordingBuildService service2 = new RecordingBuildService();
+        StubPlayer creativePlayer = new StubPlayer().creative(true);
         BuildOutcome started = coordinator(service2,
                 new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
-                new StubPlayer().creative(true), new StubSettings(true, false), null)
+                creativePlayer, new StubSettings(true, false), null,
+                new StubCreative(creativePlayer, true))
                 .requestBuild(SCHEMATIC, ORIGIN);
 
         assertTrue(started.isStarted());
         assertEquals(1, service2.started);
+        assertEquals(248, creativePlayer.countItem("minecraft:stone"),
+                "the blocks must actually be in the inventory before the build starts");
+    }
+
+    @Test
+    void creativeTakesOnlyTheShortfallAndNeverReplacesExistingBlocks() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+        StubCreative creative = new StubCreative(player, true);
+
+        // 248 required, 200 already built, 0 held -> Creative owes 48, not 248.
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 200, 0))),
+                player, new StubSettings(true, false), null, creative)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
+        assertTrue(outcome.isStarted());
+        assertEquals(List.of("minecraft:stone x48"), creative.requests,
+                "blocks already placed must never be re-supplied");
+    }
+
+    @Test
+    void aCreativeHandoverThatDeliversNothingPausesTheBuild() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+
+        // Available, but the hand-over delivers nothing: the build must not start.
+        StubCreative empty = new StubCreative(player, true, 0);
+
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, empty)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
+        assertTrue(outcome.isPaused());
+        assertEquals(0, service.started, "nothing may be built from blocks we never got");
+        assertTrue(String.join("\n", outcome.lines()).contains("Creative did not supply"),
+                String.join("\n", outcome.lines()));
+    }
+
+    @Test
+    void anUnavailableCreativeSourcePausesAndNeverChangesTheGameMode() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+
+        // The supplier reports itself unavailable - for example the player left
+        // Creative between planning and the hand-over.
+        StubCreative unavailable = new StubCreative(player, false);
+
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, unavailable)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
+        assertTrue(outcome.isPaused());
+        assertTrue(unavailable.requests.isEmpty(),
+                "an unavailable Creative source must not be asked for blocks");
+        assertTrue(player.isActuallyInCreative(),
+                "the player's gamemode is only ever read, never written");
+        assertTrue(String.join("\n", outcome.lines()).contains("Creative mode is not available"),
+                String.join("\n", outcome.lines()));
+    }
+
+    @Test
+    void aPartialHandoverPausesAndReportsTheShortfall() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+
+        // Only 64 of the 248 blocks fit, so the build must not start yet.
+        StubCreative limited = new StubCreative(player, true, 64);
+
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, limited)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
+        assertTrue(outcome.isPaused());
+        assertEquals(0, service.started);
+        assertEquals(64, player.countItem("minecraft:stone"),
+                "the blocks that did arrive stay in the inventory");
+
+        String report = String.join("\n", outcome.lines());
+        assertTrue(report.contains("Only 64 of 248"), report);
+        assertTrue(report.contains("Stone x248"), report);
+    }
+
+    @Test
+    void creativeIsNeverUsedWhenTheSettingIsOff() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+        StubCreative creative = new StubCreative(player, true);
+
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(false, false), null, creative)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
+        assertTrue(outcome.isPaused());
+        assertTrue(creative.requests.isEmpty(),
+                "being in Creative must not be used unless the setting is on");
     }
 
     @Test
@@ -368,6 +524,7 @@ class BuildCoordinatorTest {
         BuildCoordinator underTest = new BuildCoordinator(service, broken,
                 new StubPlayer(),
                 new PurchaseOrchestrator(() -> Optional.empty(), id -> 0),
+                CreativeSupplier.NONE,
                 new StubSettings(false, false));
 
         BuildOutcome outcome = underTest.requestBuild(SCHEMATIC, ORIGIN);

@@ -17,11 +17,11 @@ being placed.
      ▼
  build/                  decision logic — no Minecraft or engine classes
    ├─ BuildCoordinator    runs the fixed sequence, decides STARTED / PAUSED / REJECTED
-   ├─ material/           analyzer + inventory overlay + priority ladder
+   ├─ material/           analyzer + inventory overlay + priority ladder + Creative hand-over
    └─ shop/               purchase orchestration + adapter registry
      │
      ▼
- interfaces               BuildService, SchematicAnalyzer, PlayerContext
+ interfaces               BuildService, SchematicAnalyzer, PlayerContext, CreativeSupplier
      │
      ▼
  platform/engine/         the one package that knows the engine
@@ -29,6 +29,8 @@ being placed.
    ├─ ChikaSchematicAnalyzer
    ├─ ExistingBlockChecker
    ├─ MinecraftPlayerContext
+   ├─ CreativeInventorySupplier
+   ├─ Inventories
    └─ ItemIds
 ```
 
@@ -58,8 +60,8 @@ and is implemented in `platform/engine`.
 1. Resolve `.minecraft/schematics/` and create it (`mkdirs()`), logging a
    warning if that fails.
 2. `ChikaConfig.load()` — read `config/chika-builder.json`.
-3. Wire `ChikaBuildService`, `ChikaSchematicAnalyzer`,
-   `MinecraftPlayerContext`, `PurchaseOrchestrator` and `BuildCoordinator`.
+3. Wire `ChikaBuildService`, `ChikaSchematicAnalyzer`, `MinecraftPlayerContext`,
+   `PurchaseOrchestrator`, `CreativeInventorySupplier` and `BuildCoordinator`.
 4. On the first client tick — with a retry loop of up to 20 attempts — register
    `#chika_build` and `#chika_builder`, then run `CommandLockdown.enforce()`.
 5. Keep re-running the lockdown for the first 400 ticks, because the engine
@@ -110,8 +112,10 @@ placement code is used, and only through `BuildService`.
 
 | Group | Guards |
 |---|---|
-| `BuildCoordinatorTest` | the full flow: skip-correct-blocks, pause, resume, creative mismatch |
+| `BuildCoordinatorTest` | the full flow: skip-correct-blocks, pause, resume, creative hand-over and mismatch |
+| `CreativeAcquisitionTest` | the Creative rung: shortfall only, and a hand-over is only counted once the inventory confirms it |
 | `MaterialPlannerTest` | the priority ladder and shortfall maths |
+| `ChikaBuilderCommandTest` | `#chika_builder` parsing and Tab completion (setting names and `true`/`false`) |
 | `PurchaseOrchestratorTest` | purchases never faked; failures pause |
 | `ShopRegistryTest` | ships empty; adapter registration semantics |
 | `CommandLockdownTest` | exactly two commands allowed, forbidden list enforced |
