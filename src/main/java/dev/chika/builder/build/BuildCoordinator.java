@@ -158,35 +158,42 @@ public final class BuildCoordinator {
     }
 
     /**
-     * Tries to supply whatever the running build still needs, and reports how
-     * many items genuinely arrived.
+     * Tries to supply whatever the running build still needs, and reports both
+     * how many items genuinely arrived and whether the requirements are now
+     * actually satisfied.
      *
-     * <p>This is what the supervisor calls when the engine pauses mid-build. The
-     * plan is rebuilt from the live world first, so blocks already placed are
-     * excluded and the build continues from the remaining work rather than
+     * <p>This is what the supervisor calls when the engine pauses mid-build.
+     * The plan is rebuilt from the live world first, so blocks already placed
+     * are excluded and the build continues from the remaining work rather than
      * starting over.
      *
-     * @return the number of items that reached the inventory; {@code 0} when
-     *         nothing could be supplied
+     * <p><b>Satisfaction is decided by the inventory, never by the delivery
+     * claim.</b> After every hand-over the plan is re-computed from the live
+     * counts across <b>all</b> material types, so a partial round (191 of 248,
+     * or one material type done while another is still short) reports
+     * {@code satisfied=false} and the supervisor must not resume.
+     *
+     * @return a {@link BuildSupervisor.SupplyResult}; never {@code null}
      */
-    public int supplyOutstanding() {
+    public BuildSupervisor.SupplyResult supplyOutstanding() {
         if (this.activeSchematic == null || this.activeOrigin == null) {
-            return 0;
+            return BuildSupervisor.SupplyResult.none();
         }
 
         try {
             List<MaterialNeed> required = this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
 
             if (required == null || required.isEmpty()) {
-                return 0;
+                return BuildSupervisor.SupplyResult.none();
             }
 
             MaterialPlan plan = planWith(required);
 
             if (!plan.requiresCreative()) {
-                // Nothing Creative can currently add. The shop rung, if enabled,
-                // has already had its chance; report honestly that nothing moved.
-                return 0;
+                // Nothing Creative can currently add. Satisfaction still comes
+                // from the live plan: the player may have gathered the blocks
+                // by hand while the engine waited.
+                return new BuildSupervisor.SupplyResult(0, plan.canProceed());
             }
 
             CreativeReport report = this.creative.acquire(plan);
@@ -197,15 +204,61 @@ public final class BuildCoordinator {
                 delivered += grant.acquired();
             }
 
+            // Re-plan from the LIVE inventory: whether the engine may resume is
+            // decided by what is genuinely in storage now - every material
+            // type - never by the delivery claim itself.
+            plan = planWith(required);
+            boolean satisfied = plan.canProceed();
+
             this.lastCreativeReport = report;
             LOGGER.info("[Chika Builder] Mid-build supply round for '{}': "
-                    + "{} item(s) delivered, {} failure(s).",
-                    this.activeSchematic.getName(), delivered, report.failures().size());
-            return delivered;
+                            + "{} item(s) delivered, {} failure(s), requirements satisfied={}{}.",
+                    this.activeSchematic.getName(), delivered, report.failures().size(), satisfied,
+                    satisfied ? "" : ", still short: " + String.join("; ", shortfallLines(plan)));
+
+            return new BuildSupervisor.SupplyResult(delivered, satisfied);
         } catch (SchematicAnalyzer.SchematicAnalysisException e) {
             // The schematic cannot be re-read, so progress cannot be trusted.
-            return 0;
+            return BuildSupervisor.SupplyResult.none();
         }
+    }
+
+    /**
+     * The exact materials still short of their outstanding requirement, each
+     * like {@code "Dirt x57"}, read from a live re-plan.
+     *
+     * <p>Used for the honest {@code Missing: ...} report when supply could not
+     * close the gap: it is the inventory speaking, not a delivery claim.
+     */
+    public List<String> remainingShortfalls() {
+        if (this.activeSchematic == null || this.activeOrigin == null) {
+            return List.of();
+        }
+
+        try {
+            List<MaterialNeed> required = this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
+
+            if (required == null || required.isEmpty()) {
+                return List.of();
+            }
+
+            return shortfallLines(planWith(required));
+        } catch (SchematicAnalyzer.SchematicAnalysisException e) {
+            return List.of();
+        }
+    }
+
+    /** One {@code "Name xN"} line per material whose shortfall is still positive. */
+    private static List<String> shortfallLines(MaterialPlan plan) {
+        List<String> lines = new ArrayList<>();
+
+        for (MaterialNeed need : plan.needs()) {
+            if (need.shortfall() > 0) {
+                lines.add(need.item().displayName() + " x" + need.shortfall());
+            }
+        }
+
+        return lines;
     }
 
     /**

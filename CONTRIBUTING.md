@@ -18,7 +18,7 @@ fails fast with the exact expected path if it is missing. It is covered by
 
 ```powershell
 .\gradlew.bat test     # unit tests only
-.\gradlew.bat build    # tests + jar -> build/libs/chika-builder-1.0.0.jar
+.\gradlew.bat build    # tests + jar -> build/libs/chika-builder-1.1.2.jar
 ```
 
 Both must be green before you push. `test` runs JUnit 5 (see

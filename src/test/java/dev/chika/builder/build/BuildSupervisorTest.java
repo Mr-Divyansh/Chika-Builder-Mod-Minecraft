@@ -40,21 +40,33 @@ class BuildSupervisorTest {
         }
     }
 
-    /** Supply results are scripted per call; nothing is delivered by default. */
+    /**
+     * Supply rounds are scripted in order, with a sticky default. Nothing is
+     * delivered and nothing is satisfied unless a test says so.
+     */
     private static final class FakeSupply implements BuildSupervisor.Supply {
 
-        int next;
+        private final java.util.Deque<BuildSupervisor.SupplyResult> script = new java.util.ArrayDeque<>();
+        private BuildSupervisor.SupplyResult sticky = BuildSupervisor.SupplyResult.none();
         int calls;
 
-        FakeSupply delivering(int items) {
-            this.next = items;
+        /** Results returned by successive calls, in order. */
+        FakeSupply returning(BuildSupervisor.SupplyResult... results) {
+            this.script.addAll(java.util.List.of(results));
+            return this;
+        }
+
+        /** The same result for every further call. */
+        FakeSupply always(BuildSupervisor.SupplyResult result) {
+            this.sticky = result;
             return this;
         }
 
         @Override
-        public int supplyOutstanding() {
+        public BuildSupervisor.SupplyResult supplyOutstanding() {
             this.calls++;
-            return this.next;
+            BuildSupervisor.SupplyResult scripted = this.script.poll();
+            return scripted != null ? scripted : this.sticky;
         }
     }
 
@@ -105,7 +117,7 @@ class BuildSupervisorTest {
     void anEnginePauseIsSuppliedAndResumed() {
         // The live bug: the engine prints "Missing materials" and pauses itself.
         this.engine.paused = true;
-        this.supply.delivering(64);
+        this.supply.always(new BuildSupervisor.SupplyResult(64, true));
 
         BuildSupervisor supervisor = supervisor();
         supervisor.begin();
@@ -121,7 +133,7 @@ class BuildSupervisorTest {
     @Test
     void fruitlessSupplyEndsInAPauseInsteadOfSpinningForever() {
         this.engine.paused = true;
-        this.supply.delivering(0); // nothing ever arrives
+        this.supply.always(BuildSupervisor.SupplyResult.none()); // nothing ever arrives
 
         BuildSupervisor supervisor = supervisor();
         supervisor.begin();
@@ -161,18 +173,20 @@ class BuildSupervisorTest {
         BuildSupervisor supervisor = supervisor();
         supervisor.begin();
 
-        this.supply.delivering(0);
-        assertFalse(supervisor.tick()); // attempt 1 fails
+        this.supply.returning(
+                BuildSupervisor.SupplyResult.none(),              // attempt 1 fails
+                new BuildSupervisor.SupplyResult(12, true));       // attempt 2: complete
+        this.supply.always(BuildSupervisor.SupplyResult.none());
 
-        this.supply.delivering(12); // the items finally arrive
-        assertTrue(supervisor.tick());
+        assertFalse(supervisor.tick()); // attempt 1
+
+        assertTrue(supervisor.tick()); // the items finally arrive, fully satisfied
         assertEquals(1, this.engine.resumes);
         assertEquals(0, supervisor.attempts());
         assertEquals(BuildSupervisor.Status.RUNNING, supervisor.status());
 
         // The budget restarts: one more fruitless retry must not end the build.
         this.engine.paused = true;
-        this.supply.delivering(0);
         assertFalse(supervisor.tick());
         assertEquals(1, supervisor.attempts());
     }
@@ -180,7 +194,7 @@ class BuildSupervisorTest {
     @Test
     void healthAfterAPauseRestoresTheRetryBudget() {
         this.engine.paused = true;
-        this.supply.delivering(0);
+        this.supply.always(BuildSupervisor.SupplyResult.none());
 
         BuildSupervisor supervisor = supervisor();
         supervisor.begin();
@@ -244,5 +258,128 @@ class BuildSupervisorTest {
         assertFalse(supervisor.isActive());
         assertEquals(BuildSupervisor.Status.IDLE, supervisor.status());
         assertFalse(supervisor.tick());
+    }
+
+    // ------------------------------------------------------------------
+    // The live screenshot: 191 of 248 delivered, build resumed anyway.
+    // ------------------------------------------------------------------
+
+    @Test
+    void aPartialSupplyNeverResumesTheBuild() {
+        // 248 required, 191 delivered, 57 still missing.
+        this.engine.paused = true;
+        this.supply.always(new BuildSupervisor.SupplyResult(191, false));
+
+        BuildSupervisor supervisor = supervisor();
+        supervisor.begin();
+        supervisor.tick();
+
+        assertEquals(0, this.engine.resumes,
+                "a partial hand-over must never resume the engine");
+        assertTrue(this.engine.paused, "the engine must keep its paused state");
+        assertTrue(supervisor.isActive(), "the build is still being worked on");
+        assertEquals(0, supervisor.attempts(),
+                "real progress resets only the no-progress budget");
+    }
+
+    @Test
+    void aSecondRoundThatSatisfiesTheShortfallResumesExactlyOnce() {
+        this.engine.paused = true;
+        this.supply.returning(
+                new BuildSupervisor.SupplyResult(191, false),   // round 1: 57 short
+                new BuildSupervisor.SupplyResult(57, true));    // round 2: 248/248
+
+        BuildSupervisor supervisor = supervisor();
+        supervisor.begin();
+
+        assertFalse(supervisor.tick());
+        assertEquals(0, this.engine.resumes, "round 1 is incomplete, so no resume");
+
+        assertTrue(supervisor.tick(), "round 2 completes the requirement");
+        assertEquals(1, this.engine.resumes, "the build resumes exactly once");
+        assertFalse(this.engine.paused);
+        assertEquals(BuildSupervisor.Status.RUNNING, supervisor.status());
+        assertEquals(0, supervisor.attempts());
+
+        // Further healthy ticks must not resume a second time.
+        assertFalse(supervisor.tick());
+        assertEquals(1, this.engine.resumes);
+    }
+
+    @Test
+    void repeatedPartialProgressKeepsTheBuildPausedUntilComplete() {
+        this.engine.paused = true;
+        this.supply.returning(
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, false),
+                new BuildSupervisor.SupplyResult(10, true));
+
+        BuildSupervisor supervisor = supervisor();
+        supervisor.begin();
+
+        for (int round = 0; round < 8; round++) {
+            supervisor.tick();
+            assertEquals(0, this.engine.resumes,
+                    "round " + (round + 1) + " still short - the build must stay paused");
+            assertTrue(this.engine.paused);
+            assertTrue(supervisor.isActive());
+        }
+
+        assertTrue(supervisor.tick(), "the completing round is the one that resumes");
+        assertEquals(1, this.engine.resumes);
+    }
+
+    @Test
+    void aPartialSupplyThatThenStopsProgressingEndsInAPause() {
+        this.engine.paused = true;
+        this.supply.returning(new BuildSupervisor.SupplyResult(191, false));
+        this.supply.always(BuildSupervisor.SupplyResult.none());
+
+        BuildSupervisor supervisor = supervisor();
+        supervisor.begin();
+
+        assertFalse(supervisor.tick());
+        assertEquals(0, this.engine.resumes);
+
+        // Every later round delivers nothing: the bounded budget must end it.
+        for (int i = 0; i < BuildSupervisor.MAX_SUPPLY_ATTEMPTS; i++) {
+            assertFalse(supervisor.tick());
+        }
+
+        assertTrue(supervisor.tick(), "the build is reported once the budget is spent");
+        assertEquals(BuildSupervisor.Status.PAUSED, supervisor.status());
+        assertEquals(0, this.engine.resumes, "nothing short may ever be resumed");
+        assertTrue(this.engine.paused);
+        assertFalse(supervisor.isActive());
+    }
+
+    @Test
+    void aDeliveryForOneMaterialDoesNotResumeWhileAnotherIsStillShort() {
+        // Oak planks fully delivered (100), dirt still 57 short -> not satisfied.
+        this.engine.paused = true;
+        this.supply.always(new BuildSupervisor.SupplyResult(100, false));
+
+        BuildSupervisor supervisor = supervisor();
+        supervisor.begin();
+
+        for (int round = 0; round < BuildSupervisor.MAX_SUPPLY_ATTEMPTS * 2; round++) {
+            supervisor.tick();
+            assertEquals(0, this.engine.resumes,
+                    "one material being delivered is never a reason to resume");
+            assertTrue(this.engine.paused, "the engine must stay paused while dirt is short");
+        }
+
+        // Rounds keep delivering, so the build is still being worked on rather
+        // than abandoned; a round that delivers nothing is what ends it (see
+        // aPartialSupplyThatThenStopsProgressingEndsInAPause).
+        assertTrue(supervisor.isActive());
+        assertTrue(this.engine.paused);
+        assertEquals(0, supervisor.attempts());
     }
 }

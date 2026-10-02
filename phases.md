@@ -54,11 +54,15 @@ promised yet.
 
 ## Current
 
-**v1.0.0 released; Creative supply verification is the current work.** The full
-loop works end to end: `#chika_build castle.schematic` → locate → parse → compare
-with world → plan supply → hand over from Creative and/or buy from the shop →
-place → verify → stop cleanly. The unreleased work is the *verified* Creative rung
-(Phase 6) and the boolean tab-completion fix; both are test-covered.
+**v1.1.2 released: runtime recovery, branding, and a strict no-partial-resume
+supply loop.** The full loop works end to end: `#chika_build castle.schematic` →
+locate → parse → compare with world → plan supply → hand over from Creative
+and/or buy from the shop → place → verify → stop cleanly. What the live tests
+drove in: a per-tick build supervisor that recovers the engine's own pauses,
+`[Chika Builder]` chat branding, and the rule that the engine may only resume
+when a re-plan against the live inventory shows **every** material requirement
+covered. All of it is test-covered; the live in-game run of v1.1.2 is the next
+milestone.
 
 ## Future (ideas, not commitments)
 

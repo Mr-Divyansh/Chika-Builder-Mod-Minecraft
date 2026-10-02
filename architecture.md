@@ -106,7 +106,7 @@ placement code is used, and only through `BuildService`.
 | Loom | 1.18.2, `noIntermediateMappings()` |
 | Mappings | none — Minecraft 26.1 ships unobfuscated, so there is nothing to remap |
 | Java | toolchain 25, `options.release = 25` |
-| Output | `build/libs/chika-builder-1.0.0.jar` |
+| Output | `build/libs/chika-builder-1.1.2.jar` |
 
 ## Tests
 

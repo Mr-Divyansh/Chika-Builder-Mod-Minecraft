@@ -17,10 +17,12 @@ package dev.chika.builder.build;
  *   <li>If the engine has finished, verify the world against the schematic and
  *       report {@code COMPLETE} only when nothing is left outstanding.</li>
  *   <li>If the engine is paused and material is still short, ask the supply
- *       chain for more and {@code resume} the engine, so the build continues
- *       instead of stalling.</li>
+ *       chain for more. The engine is resumed <b>only</b> when the round
+ *       delivered blocks <i>and</i> the live inventory confirms that every
+ *       remaining requirement is satisfied - a partial hand-over (say 191 of
+ *       248) leaves the build paused and triggers another supply round.</li>
  *   <li>If supplying cannot make progress, give up after a bounded number of
- *       attempts and report {@code PAUSED} with the exact shortfall.</li>
+ *       no-progress attempts and report {@code PAUSED} with the exact shortfall.</li>
  * </ol>
  *
  * <p>Pure decision logic: every engine interaction goes through the injected
@@ -56,16 +58,38 @@ public final class BuildSupervisor {
         void resume();
     }
 
-    /** Supplies outstanding material; returns how many items actually arrived. */
+    /**
+     * Outcome of one supply round, from the live inventory.
+     *
+     * @param delivered how many items genuinely reached the player's storage
+     *                  (re-counted, never claimed)
+     * @param satisfied {@code true} only when a re-plan against the live
+     *                  inventory shows <b>every</b> material requirement of the
+     *                  build is covered - across all material types, not just
+     *                  the one that was just handed over
+     */
+    public record SupplyResult(int delivered, boolean satisfied) {
+
+        /** Nothing arrived and something is still missing. */
+        public static SupplyResult none() {
+            return new SupplyResult(0, false);
+        }
+    }
+
+    /**
+     * Supplies outstanding material; reports what arrived and whether the
+     * requirements are now actually satisfied.
+     */
     public interface Supply {
 
         /**
-         * Tries to obtain the still-missing blocks.
+         * Tries to obtain the still-missing blocks and re-counts the inventory.
          *
-         * @return the number of items that genuinely reached the inventory; {@code 0}
-         *         when nothing could be supplied
+         * @return {@link SupplyResult} with the number of items that genuinely
+         *         reached the inventory and whether <b>all</b> requirements are
+         *         satisfied; never {@code null}
          */
-        int supplyOutstanding();
+        SupplyResult supplyOutstanding();
     }
 
     /** Verifies the world against the schematic. */
@@ -150,10 +174,20 @@ public final class BuildSupervisor {
     }
 
     /**
-     * The engine paused. Try to supply what is missing and resume it.
+     * The engine paused. Supply what is missing, and resume it <b>only</b> when
+     * the live inventory confirms the requirements are actually satisfied.
      *
-     * <p>Bounded on purpose: if supply cannot make progress the engine is left
-     * paused and the build is reported, instead of spinning forever.
+     * <p>The resume condition is deliberately strict, because a live test once
+     * showed the failure mode: Creative delivered 191 of 248 blocks and the
+     * build was resumed anyway, running on with 57 required blocks missing.
+     * "Some blocks arrived" is not a reason to resume; "nothing is short any
+     * more" is.
+     *
+     * <p>Bounded on purpose: rounds that deliver nothing count against
+     * {@link #MAX_SUPPLY_ATTEMPTS}; rounds that make real progress reset that
+     * budget but still never resume the engine while a shortfall remains. So a
+     * build either completes its supply, or ends paused with the exact
+     * remainder - it can never spin forever and never resumes half-supplied.
      */
     private boolean recoverFromPause() {
         if (this.attempts >= MAX_SUPPLY_ATTEMPTS) {
@@ -164,27 +198,37 @@ public final class BuildSupervisor {
 
         this.attempts++;
 
-        int supplied = 0;
+        SupplyResult result = SupplyResult.none();
 
         try {
-            supplied = this.supply.supplyOutstanding();
+            SupplyResult supplied = this.supply.supplyOutstanding();
+            if (supplied != null) {
+                result = supplied;
+            }
         } catch (Throwable t) {
             // A supplier that throws is a supplier that supplied nothing.
-            supplied = 0;
+            result = SupplyResult.none();
         }
 
-        if (supplied <= 0) {
-            // Still nothing in hand. Let the engine keep its paused state and
-            // try again next tick, until the retry budget runs out.
-            return false;
+        if (result.satisfied() && result.delivered() > 0) {
+            // Blocks really arrived AND the re-plan against the live inventory
+            // shows every requirement covered: the only legal resume.
+            this.control.resume();
+            this.attempts = 0;
+            this.status = Status.RUNNING;
+            return true;
         }
 
-        // Blocks really arrived, so the engine can carry on from where it
-        // stopped rather than starting again.
-        this.control.resume();
-        this.attempts = 0;
-        this.status = Status.RUNNING;
-        return true;
+        if (result.delivered() > 0) {
+            // Partial hand-over: progress was made but at least one material is
+            // still short. The engine STAYS PAUSED (the premature-resume bug).
+            // Real progress resets only the no-progress budget, so a build that
+            // is still closing the gap is not abandoned, while a supply that
+            // stops delivering still ends in a bounded PAUSED report.
+            this.attempts = 0;
+        }
+
+        return false;
     }
 
     /** Verifies the finished build against the world and settles the outcome. */

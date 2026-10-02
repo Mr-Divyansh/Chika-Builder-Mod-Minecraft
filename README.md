@@ -17,7 +17,7 @@ Builder places the blocks for you.
 - **Schematic-based automatic building** — reads a `.schematic` (or `.litematic`) file and builds it.
 - **Automatic block placement** — you don't place anything by hand.
 - **Clear chat feedback** — every build tells you what happened: it started, it was rejected, or it paused.
-- **Build pause and resume** — when materials run out, the build pauses, lists exactly what is missing, and continues from where it stopped once you have the items.
+- **Build pause and resume** — when materials run out, the build pauses and lists exactly what is missing. With Creative enabled it hands the blocks over itself and resumes **only once your inventory actually holds everything the build still needs** — a partial hand-over never starts the builder again.
 - **Creative building mode** — optional and off by default. When you are actually in Creative, Chika Builder hands the missing blocks over from Creative and confirms they arrived. It never changes your game mode; it only reads it.
 - **Optional auto-shop purchasing** — off by default, so Chika Builder never spends your money unless you ask it to.
 - **Filename tab-completion** — press Tab to see the schematics you have.
@@ -48,7 +48,7 @@ Builder places the blocks for you.
 3. **Put the mod jar inside your mods folder:**
 
    ```text
-   .minecraft/mods/chika-builder-1.0.0.jar
+   .minecraft/mods/chika-builder-1.1.2.jar
    ```
 
 4. **Start Minecraft.**
@@ -59,7 +59,7 @@ Builder places the blocks for you.
    ```
 
 You install exactly **one** file. The building engine is already merged into
-`chika-builder-1.0.0.jar`, so there is nothing else to add to your mods folder.
+`chika-builder-1.1.2.jar`, so there is nothing else to add to your mods folder.
 
 ---
 
@@ -202,6 +202,13 @@ items, then run the same command again:
 The build continues from where it stopped. Nothing is lost, and blocks you
 already finished are left alone.
 
+With `#chika_builder creative true` and you actually in Creative, you do not
+have to do this by hand: the builder hands the missing blocks over itself,
+re-checks your inventory after every round, and only resumes once **every**
+required block is really there. If a hand-over can only be partial it keeps
+retrying, and if the gap cannot be closed it reports exactly what is still
+missing and leaves the build paused.
+
 ---
 
 ## Settings Screen
@@ -276,7 +283,7 @@ These are the honest limits of the current release:
 .\gradlew.bat build
 ```
 
-Output: `build/libs/chika-builder-1.0.0.jar`
+Output: `build/libs/chika-builder-1.1.2.jar`
 
 Requires JDK 25, plus the build-time engine jar placed in `local/`. That jar is
 deliberately not committed; the exact filename is documented in `.gitignore`, and
@@ -290,7 +297,7 @@ Gradle prints the expected path if it is missing.
 |---|---|
 | Fabric Loader 0.18.6+ | installed with Fabric |
 | Fabric API for 26.1.2 | your `mods/` folder |
-| Pathing & build engine | **already merged inside `chika-builder-1.0.0.jar`** |
+| Pathing & build engine | **already merged inside `chika-builder-1.1.2.jar`** |
 
 You never install the engine separately. It is third-party (LGPL-3.0) code that
 is merged into the Chika Builder jar when it is built, so the Mods screen lists

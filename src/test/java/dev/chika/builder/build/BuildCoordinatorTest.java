@@ -180,7 +180,7 @@ class BuildCoordinatorTest {
 
         private final StubPlayer player;
         private final boolean available;
-        private final int capPerGrant;
+        private int capPerGrant;
         private final List<String> requests = new ArrayList<>();
 
         StubCreative(StubPlayer player, boolean available) {
@@ -195,6 +195,15 @@ class BuildCoordinatorTest {
             this.player = player;
             this.available = available;
             this.capPerGrant = capPerGrant;
+        }
+
+        /**
+         * Raises the per-item capacity, as if the player freed room for more
+         * stacks between supply rounds.
+         */
+        StubCreative capacity(int capPerItem) {
+            this.capPerGrant = capPerItem;
+            return this;
         }
 
         @Override
@@ -577,9 +586,11 @@ class BuildCoordinatorTest {
         // with "Missing materials for at least:".
         player.set("minecraft:stone", 0);
 
-        int delivered = underTest.supplyOutstanding();
+        BuildSupervisor.SupplyResult round = underTest.supplyOutstanding();
 
-        assertEquals(248, delivered, "the whole shortfall must be delivered");
+        assertEquals(248, round.delivered(), "the whole shortfall must be delivered");
+        assertTrue(round.satisfied(),
+                "the re-plan against the live inventory must confirm the requirement");
         assertEquals(248, player.countItem("minecraft:stone"),
                 "the inventory count must actually increase");
         assertFalse(creative.requests.isEmpty(), "the Creative supplier must be called");
@@ -604,8 +615,11 @@ class BuildCoordinatorTest {
 
         player.set("minecraft:stone", 0); // shortage appears mid-build
 
-        assertEquals(0, underTest.supplyOutstanding(),
-                "with creative=false nothing may be supplied");
+        BuildSupervisor.SupplyResult round = underTest.supplyOutstanding();
+
+        assertEquals(0, round.delivered(), "with creative=false nothing may be supplied");
+        assertFalse(round.satisfied(),
+                "the shortage is still there, so the build must not be resumed");
         assertTrue(creative.requests.isEmpty(),
                 "the Creative supplier must not even be contacted when the setting is off");
         assertEquals(0, player.countItem("minecraft:stone"));
@@ -626,13 +640,86 @@ class BuildCoordinatorTest {
 
         player.set("minecraft:stone", 0);
 
-        assertEquals(0, underTest.supplyOutstanding(),
+        BuildSupervisor.SupplyResult round = underTest.supplyOutstanding();
+
+        assertEquals(0, round.delivered(),
                 "an unavailable supplier delivers nothing - the caller must be told");
+        assertFalse(round.satisfied(),
+                "nothing was supplied, so the requirement cannot be called satisfied");
         assertEquals(0, player.countItem("minecraft:stone"), "no fake inventory");
         assertTrue(creative.requests.isEmpty(), "an unavailable supplier is never asked");
         assertFalse(underTest.lastCreativeReport().allSucceeded(),
                 "the failure must be reported, not swallowed");
         assertEquals(1, service.started, "a failed supply must not restart the build");
+    }
+
+    @Test
+    void everyMaterialTypeMustBeSatisfiedBeforeTheResultCountsAsSatisfied() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+
+        // The inventory can take at most 60 of any one item this round: dirt
+        // (needs 100) is capped, planks (needs 50) fit completely.
+        StubCreative creative = new StubCreative(player, true, 60);
+
+        BuildCoordinator underTest = coordinator(service, new StubAnalyzer(List.of(
+                        need("minecraft:dirt", "Dirt", 100, 0, 0),
+                        need("minecraft:oak_planks", "Oak Planks", 50, 0, 0))),
+                player, new StubSettings(true, false), null, creative);
+
+        player.set("minecraft:dirt", 100).set("minecraft:oak_planks", 50);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+
+        player.set("minecraft:dirt", 0).set("minecraft:oak_planks", 0);
+
+        // Round 1: planks are complete, dirt is still 40 short.
+        BuildSupervisor.SupplyResult first = underTest.supplyOutstanding();
+
+        assertEquals(110, first.delivered(), "60 dirt + 50 planks arrived");
+        assertFalse(first.satisfied(),
+                "one material being complete is not enough - dirt is still missing");
+        assertEquals(60, player.countItem("minecraft:dirt"));
+        assertEquals(50, player.countItem("minecraft:oak_planks"));
+        assertEquals(List.of("Dirt x40"), underTest.remainingShortfalls(),
+                "the report must name exactly what is still missing");
+
+        // Round 2: capacity raised (room freed) -> only then is it satisfied.
+        creative.capacity(100);
+        BuildSupervisor.SupplyResult second = underTest.supplyOutstanding();
+
+        assertEquals(40, second.delivered(), "the remaining dirt only");
+        assertTrue(second.satisfied(), "now every material is covered by the inventory");
+        assertEquals(100, player.countItem("minecraft:dirt"));
+        assertTrue(underTest.remainingShortfalls().isEmpty());
+        assertEquals(1, service.started, "supplying must not restart the build");
+    }
+
+    @Test
+    void creativeAcquisitionNeverRunsWhenThePlayerIsNotActuallyInCreative() {
+        RecordingBuildService service = new RecordingBuildService();
+
+        // The setting says true, but the player is actually in survival.
+        StubPlayer player = new StubPlayer();
+        StubCreative creative = new StubCreative(player, true);
+
+        BuildCoordinator underTest = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, creative);
+
+        player.set("minecraft:stone", 248);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+
+        player.set("minecraft:stone", 0);
+
+        BuildSupervisor.SupplyResult round = underTest.supplyOutstanding();
+
+        assertEquals(0, round.delivered(), "nothing may be invented outside Creative");
+        assertFalse(round.satisfied());
+        assertTrue(creative.requests.isEmpty(),
+                "Creative acquisition must not even be attempted outside Creative");
+        assertTrue(underTest.lastCreativeReport().failures().isEmpty(),
+                "with Creative unusable no hand-over is reported at all");
+        assertEquals(0, player.countItem("minecraft:stone"), "no fake inventory");
     }
 }
 

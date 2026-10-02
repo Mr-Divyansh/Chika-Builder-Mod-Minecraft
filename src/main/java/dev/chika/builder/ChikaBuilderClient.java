@@ -225,32 +225,39 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                         + "after {} fruitless supply attempt(s).",
                         outstanding, this.supervisor.attempts());
 
+                CreativeReport report = this.coordinator.lastCreativeReport();
+                boolean supplyIncomplete = report != null && !report.failures().isEmpty();
+
+                // Honest reporting only: every line here is backed by the live
+                // inventory re-plan, never by a delivery claim. While material
+                // remains, the build is reported as still paused - the player
+                // is never told a resume happened or will happen.
+                if (supplyIncomplete) {
+                    ChikaChat.say("Creative supply incomplete.");
+
+                    for (String missing : this.coordinator.remainingShortfalls()) {
+                        ChikaChat.say("Missing: " + missing);
+                    }
+
+                    // The reasons (inventory full, source unavailable, ...) go
+                    // to the log so chat stays exactly as shown in the spec.
+                    for (String reason : report.describeFailures()) {
+                        LOGGER.info("[Chika Builder] {}", reason);
+                    }
+                }
+
                 if (outstanding < 0) {
                     ChikaChat.say("Build paused - progress could not be verified.");
                 } else {
-                    ChikaChat.say("Build paused - " + outstanding
-                            + " block(s) still missing. Running #chika_build again resumes.");
+                    ChikaChat.say("Build remains paused - " + outstanding
+                            + " block(s) still missing.");
                 }
 
-                this.reportSupplyShortfall();
                 this.finishActiveBuild();
             }
             default -> {
                 // RUNNING/IDLE need no message here.
             }
-        }
-    }
-
-    /** Explains exactly which materials could not be supplied. */
-    private void reportSupplyShortfall() {
-        CreativeReport report = this.coordinator.lastCreativeReport();
-
-        if (report == null || report.failures().isEmpty()) {
-            return;
-        }
-
-        for (String failure : report.describeFailures()) {
-            ChikaChat.say(failure);
         }
     }
 

@@ -4,6 +4,41 @@ All notable changes to Chika Builder.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are tagged with the mod version in `gradle.properties`.
 
+## [1.1.2] — Creative supply never resumes a half-supplied build
+
+### Fixed
+
+- **A partial Creative hand-over no longer resumes the engine.** A live test
+  showed Creative delivering 191 of 248 blocks, the build being resumed anyway,
+  and then reporting `57 block(s) still missing`. The resume condition was
+  simply "some blocks arrived". It is now strictly "blocks arrived **and** a
+  re-plan against the live inventory shows every requirement covered" - so a
+  partial round (191 of 248, or one material type complete while another is
+  still short) leaves the engine paused and triggers another supply round.
+  Resume becomes possible only when the live inventory itself confirms the
+  requirement, across all material types.
+- **The supply seam now reports satisfaction, not just a count.**
+  `BuildSupervisor.Supply` returns a `SupplyResult(delivered, satisfied)`, and
+  `BuildCoordinator.supplyOutstanding()` decides `satisfied` by re-planning from
+  the real inventory after every round, never by the delivery claim.
+- **The paused report no longer promises a resume while material is missing.**
+  It says `Creative supply incomplete.`, then one `Missing: Dirt x57` line per
+  still-short material straight from the inventory, then
+  `Build remains paused - N block(s) still missing.` The old
+  "Running #chika_build again resumes." line is gone from that path; the
+  detailed reasons move to the log.
+
+### Changed
+
+- Safety stays bounded and is now precise: rounds that deliver nothing count
+  against the retry budget (`MAX_SUPPLY_ATTEMPTS = 5`) and end in a paused
+  report with the exact remainder; rounds that make real progress reset only
+  that no-progress budget, so a build that is still closing a gap is never
+  abandoned and never spins forever. Creative still requires the player to be
+  genuinely in Creative - the setting is never a substitute for it, and the
+  gamemode is never changed.
+- Version bumped to 1.1.2 (Minecraft 26.1.2 unchanged).
+
 ## [1.1.1] — live runtime recovery and branding
 
 ### Added
