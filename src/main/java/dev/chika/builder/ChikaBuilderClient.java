@@ -229,27 +229,34 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                 boolean supplyIncomplete = report != null && !report.failures().isEmpty();
                 java.util.List<String> missing = this.coordinator.remainingShortfalls();
 
-                // Only what is true: the exact materials the inventory still
-                // lacks, read from a live re-plan, and whether the automatic
-                // supply is what failed. No resume is promised, because a resume
-                // only happens when supply actually completes.
+                // Only what is true, and nothing that promises a resume: the exact
+                // materials the inventory still lacks (from a live re-plan), and
+                // whether the automatic supply is what failed. The build stays
+                // paused and keeps its progress - no restart is suggested,
+                // because re-running the command would rebuild from the start.
                 if (supplyIncomplete) {
-                    ChikaChat.say("Creative supply could not complete the required materials.");
+                    ChikaChat.say("Creative supply incomplete.");
                 }
 
-                for (String line : missing) {
-                    ChikaChat.say("Missing: " + line);
+                if (!missing.isEmpty()) {
+                    ChikaChat.say("Missing:");
+
+                    for (String line : missing) {
+                        ChikaChat.say("- " + line);
+                    }
                 }
 
                 if (outstanding < 0) {
                     ChikaChat.say("Build paused - progress could not be verified.");
                 } else {
-                    ChikaChat.say("Build paused - " + outstanding
+                    ChikaChat.say("Build remains paused - " + outstanding
                             + " block(s) still missing.");
                 }
 
                 if (missing.isEmpty() && !supplyIncomplete) {
-                    ChikaChat.say("Run #chika_build again to try once more.");
+                    // The inventory covers every material we can see, so this is
+                    // not a supply problem: say what is known, not what to type.
+                    ChikaChat.say("The builder is stopped; the log records the reason.");
                 }
 
                 // The reasons (inventory full, source unavailable, ...) go to
@@ -313,8 +320,8 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         ICommand command = new ChikaBuildCommand(engine, this.coordinator, this.locator);
         engine.getCommandManager().getRegistry().register(command);
 
-        // Settings command: #chika_builder creative|shop true|false
-        engine.getCommandManager().getRegistry().register(new ChikaBuilderCommand(engine));
+        // Settings command: #chika_builder creative|shop true|false, and #chika_builder debug
+        engine.getCommandManager().getRegistry().register(new ChikaBuilderCommand(engine, this.coordinator));
 
         this.enforceLockdown();
     }

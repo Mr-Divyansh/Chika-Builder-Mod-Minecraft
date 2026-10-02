@@ -43,6 +43,40 @@ public final class MinecraftPlayerContext implements PlayerContext {
     }
 
     /**
+     * How many of the 36 storage slots the engine scans are occupied.
+     *
+     * <p>Diagnostics for {@code #chika_builder debug}: it answers "is there even
+     * room left?" over exactly the range the engine reads.
+     */
+    @Override
+    public int occupiedSlots() {
+        try {
+            net.minecraft.client.player.LocalPlayer player =
+                    net.minecraft.client.Minecraft.getInstance().player;
+
+            if (player == null) {
+                return 0;
+            }
+
+            net.minecraft.world.entity.player.Inventory inventory = player.getInventory();
+            int used = 0;
+
+            for (int slot = 0;
+                 slot < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+
+                if (stack != null && !stack.isEmpty()) {
+                    used++;
+                }
+            }
+
+            return used;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /**
      * Total number of matching items in the player's 36 storage slots
      * (hotbar and main rows).
      *

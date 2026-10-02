@@ -772,5 +772,50 @@ class BuildCoordinatorTest {
                 "with Creative unusable no hand-over is reported at all");
         assertEquals(0, player.countItem("minecraft:stone"), "no fake inventory");
     }
-}
 
+    @Test
+    void diagnosticsNameEveryMissingMaterialAndCountTheRealSlots() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+        StubCreative creative = new StubCreative(player, true);
+        creative.rejects("`$" + "minecraft:cobblestone");
+
+        BuildCoordinator underTest = coordinator(service, new StubAnalyzer(List.of(
+                        need("`$" + "minecraft:dirt", "Dirt", 100, 0, 0),
+                        need("`$" + "minecraft:cobblestone", "Cobblestone", 64, 0, 0))),
+                player, new StubSettings(true, false), null, creative);
+
+        player.set("`$" + "minecraft:dirt", 100).set("`$" + "minecraft:cobblestone", 64);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+
+        player.set("`$" + "minecraft:dirt", 0).set("`$" + "minecraft:cobblestone", 0);
+        underTest.supplyOutstanding();
+
+        BuildCoordinator.Diagnostics diagnostics = underTest.diagnostics();
+
+        assertTrue(diagnostics.hasBuild());
+        assertTrue(diagnostics.creativeOn());
+        assertTrue(diagnostics.actuallyInCreative());
+        assertEquals(2, diagnostics.required());
+        assertEquals(1, diagnostics.present(), "dirt is obtainable, cobblestone is not");
+        assertEquals(1, diagnostics.missing());
+        assertEquals(1, diagnostics.missingLines().size());
+        assertTrue(diagnostics.missingLines().get(0).contains("minecraft:cobblestone"),
+                diagnostics.missingLines().get(0));
+    }
+
+    @Test
+    void diagnosticsWithoutABuildReportNoMaterials() {
+        RecordingBuildService service = new RecordingBuildService();
+        BuildCoordinator underTest = coordinator(service,
+                new StubAnalyzer(List.of(need("`$" + "minecraft:stone", "Stone", 248, 0, 0))),
+                new StubPlayer().creative(true), new StubSettings(true, false), null, null);
+
+        BuildCoordinator.Diagnostics diagnostics = underTest.diagnostics();
+
+        assertFalse(diagnostics.hasBuild());
+        assertEquals(0, diagnostics.required());
+        assertEquals(0, diagnostics.missing());
+        assertTrue(diagnostics.creativeOn());
+    }
+}

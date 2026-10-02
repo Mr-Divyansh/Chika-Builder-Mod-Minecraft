@@ -39,6 +39,20 @@ public interface CreativeSupplier {
      */
     int grant(String itemId, int amount);
 
+    /**
+     * Where the last hand-over of {@code itemId} physically went.
+     *
+     * <p>Diagnostics only, so a live run can show the real slot and stack size
+     * that were written (and {@code "none"} when nothing was). The default
+     * reports nothing, which keeps every test double unchanged.
+     *
+     * @param itemId the item that was just requested
+     * @return a short description such as {@code "slot 12 x64"}
+     */
+    default String lastWrite(String itemId) {
+        return "none";
+    }
+
     /** Short player-facing label, e.g. {@code "creative"}. Diagnostics only. */
     String describe();
 

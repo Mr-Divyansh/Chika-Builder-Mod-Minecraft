@@ -20,6 +20,17 @@ public interface PlayerContext {
     /** How many of {@code itemId} the player is currently holding. */
     int countItem(String itemId);
 
+    /**
+     * How many of the 36 storage slots are occupied.
+     *
+     * <p>Diagnostics only. The default of {@code 0} keeps simple contexts
+     * (including test doubles) working; the real implementation counts the
+     * player's actual slots - the same range the engine scans.
+     */
+    default int occupiedSlots() {
+        return 0;
+    }
+
     /** A context used before a world is loaded; reports no materials. */
     PlayerContext NONE = new PlayerContext() {
         @Override

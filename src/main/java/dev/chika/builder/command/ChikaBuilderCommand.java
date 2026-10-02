@@ -1,5 +1,6 @@
 package dev.chika.builder.command;
 
+import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.config.ChikaConfig;
 import dev.chika.builder.ui.ChikaChat;
 import baritone.api.IBaritone;
@@ -34,6 +35,15 @@ public final class ChikaBuilderCommand extends Command {
     private static final String ARG_CREATIVE = "creative";
     private static final String ARG_SHOP = "shop";
 
+    /**
+     * A read-only diagnostic that prints the live material state.
+     *
+     * <p>It never starts, resumes or stops a build, and never changes a
+     * setting - it only reports what is actually true right now, which is what
+     * a stalled build needs to explain itself.
+     */
+    private static final String ARG_DEBUG = "debug";
+
     private static final List<String> OPTIONS = List.of(ARG_CREATIVE, ARG_SHOP);
 
     /**
@@ -45,8 +55,15 @@ public final class ChikaBuilderCommand extends Command {
      */
     private static final List<String> VALUES = List.of("true", "false");
 
+    private final BuildCoordinator coordinator;
+
     public ChikaBuilderCommand(IBaritone engine) {
+        this(engine, null);
+    }
+
+    public ChikaBuilderCommand(IBaritone engine, BuildCoordinator coordinator) {
         super(engine, COMMAND_NAME);
+        this.coordinator = coordinator;
     }
 
     @Override
@@ -74,6 +91,12 @@ public final class ChikaBuilderCommand extends Command {
         String rawSetting = args.getString();
         String setting = rawSetting.toLowerCase(Locale.ROOT);
 
+        if (ARG_DEBUG.equals(setting)) {
+            // Read-only diagnostic: it takes no value and changes nothing.
+            reportDebug(ChikaConfig.get());
+            return;
+        }
+
         if (!OPTIONS.contains(setting)) {
             say("Unknown setting '" + rawSetting + "'. Use: creative or shop.");
             return;
@@ -98,6 +121,41 @@ public final class ChikaBuilderCommand extends Command {
         } else {
             config.setShopEnabled(value);
             say("Auto-shop " + (value ? "enabled" : "disabled") + ".");
+        }
+    }
+
+    /**
+     * Prints the live material state so a stalled build can be diagnosed
+     * without guesswork.
+     *
+     * <p>Everything reported here is measured: the setting, the player's real
+     * gamemode, the occupied storage slots the engine scans, and the material
+     * list of the running build. It changes nothing.
+     */
+    private void reportDebug(ChikaConfig config) {
+        if (this.coordinator == null) {
+            say("Creative enabled: " + config.isCreativeEnabled());
+            say("Material state unavailable: no build coordinator.");
+            return;
+        }
+
+        BuildCoordinator.Diagnostics diagnostics = this.coordinator.diagnostics();
+
+        say("Creative enabled: " + diagnostics.creativeOn());
+        say("Actual gamemode: " + (diagnostics.actuallyInCreative() ? "Creative" : "not Creative"));
+        say("Inventory storage slots: " + diagnostics.occupiedSlots() + "/36 occupied");
+
+        if (!diagnostics.hasBuild()) {
+            say("No build is running, so there are no required materials to report.");
+            return;
+        }
+
+        say("Required materials: " + diagnostics.required());
+        say("Present materials: " + diagnostics.present());
+        say("Missing materials: " + diagnostics.missing());
+
+        for (String line : diagnostics.missingLines()) {
+            say("  " + line);
         }
     }
 

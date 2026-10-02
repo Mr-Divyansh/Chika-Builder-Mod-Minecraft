@@ -86,6 +86,7 @@ public final class CreativeAcquisition {
             String itemId = need.item().itemId();
             String displayName = need.item().displayName();
             int inventoryBefore = countOf(itemId);
+            String write = "none";
 
             // Creative is an effectively unlimited source, and the engine's own
             // material check only asks whether the block is PRESENT in the
@@ -105,6 +106,8 @@ public final class CreativeAcquisition {
 
                 grant(itemId, requested - gained);
 
+                write = lastWrite(itemId);
+
                 int passAfter = countOf(itemId);
                 int step = Math.max(0, passAfter - passBefore);
 
@@ -119,17 +122,21 @@ public final class CreativeAcquisition {
             }
 
             if (!present) {
-                LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
-                                + "inventory before={}, supplied=0, remaining={}, present=false",
-                        itemId, requested, inventoryBefore, requested);
+                LOGGER.info("[Chika Builder] Creative supply: material={} requested={} "
+                                + "beforeInventory={} delivered=0 afterInventory={} present=false "
+                                + "slot={} stack=0 satisfied=false",
+                        itemId, requested, inventoryBefore, countOf(itemId), write);
                 failures.add(new CreativeReport.CreativeFailure(itemId, displayName, requested,
                         "Creative did not supply these blocks."));
                 continue;
             }
 
-            LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
-                            + "inventory before={}, supplied={}, inventory after={}, present=true",
-                    itemId, requested, inventoryBefore, gained, countOf(itemId));
+            int after = countOf(itemId);
+
+            LOGGER.info("[Chika Builder] Creative supply: material={} requested={} "
+                            + "beforeInventory={} delivered={} afterInventory={} present=true "
+                            + "slot={} stack={} satisfied=true",
+                    itemId, requested, inventoryBefore, gained, after, write, after);
 
             granted.add(new CreativeReport.CreativeGrant(itemId, displayName, requested, gained));
         }
@@ -151,6 +158,16 @@ public final class CreativeAcquisition {
             this.supplier.grant(itemId, amount);
         } catch (Throwable ignored) {
             // The count below decides whether anything actually arrived.
+        }
+    }
+
+    /** Where the supplier says the last hand-over went; diagnostics only. */
+    private String lastWrite(String itemId) {
+        try {
+            String write = this.supplier.lastWrite(itemId);
+            return write == null ? "none" : write;
+        } catch (Throwable t) {
+            return "none";
         }
     }
 

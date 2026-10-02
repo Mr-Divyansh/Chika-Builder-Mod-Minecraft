@@ -34,6 +34,9 @@ import java.util.Optional;
  */
 public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("Chika Builder");
+
     /** Guard against absurd files; a build this size is not playable anyway. */
     private static final int MAX_VOLUME = 8_000_000;
 
@@ -75,6 +78,7 @@ public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
 
         // LinkedHashMap keeps a stable order so reports read the same each run.
         Map<String, ItemAmount> counts = new LinkedHashMap<>();
+        int cellsWithNoItem = 0;
 
         for (int x = 0; x < schematic.widthX(); x++) {
             for (int y = 0; y < schematic.heightY(); y++) {
@@ -87,12 +91,26 @@ public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
 
                     Block block = state.getBlock();
                     if (block.asItem() == Items.AIR) {
+                        // A block with no item form can never be placed by the
+                        // engine either, so it is not a material - but it is
+                        // counted, so a live run can see it.
+                        cellsWithNoItem++;
                         continue;
                     }
 
                     tally(counts, block);
                 }
             }
+        }
+
+        LOGGER.info("[Chika Builder] Schematic materials: {} distinct type(s) from a {}x{}x{} "
+                        + "schematic, {} cell(s) with no item form (never placeable).",
+                counts.size(), schematic.widthX(), schematic.heightY(), schematic.lengthZ(),
+                cellsWithNoItem);
+
+        for (ItemAmount amount : counts.values()) {
+            LOGGER.info("[Chika Builder] Material resolved: minecraftItemId={} name={} count={}",
+                    amount.itemId(), amount.displayName(), amount.amount());
         }
 
         List<MaterialNeed> needs = new ArrayList<>(counts.size());

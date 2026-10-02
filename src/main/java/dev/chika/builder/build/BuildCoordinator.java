@@ -215,6 +215,7 @@ public final class BuildCoordinator {
                             + "{} item(s) delivered, {} failure(s), requirements satisfied={}{}.",
                     this.activeSchematic.getName(), delivered, report.failures().size(), satisfied,
                     satisfied ? "" : ", still short: " + String.join("; ", shortfallLines(plan)));
+            logRemainingRequirements(plan);
 
             return new BuildSupervisor.SupplyResult(delivered, satisfied);
         } catch (SchematicAnalyzer.SchematicAnalysisException e) {
@@ -226,6 +227,75 @@ public final class BuildCoordinator {
     /**
      * The exact materials still short of their outstanding requirement, each
      * like {@code "Dirt x57"}, read from a live re-plan.
+     *
+     * <p>Used for the honest {@code Missing: ...} report when supply could not
+     * close the gap: it is the inventory speaking, not a delivery claim.
+     */
+    /**
+     * A snapshot of the material state, for the {@code #chika_builder debug}
+     * command. Diagnostics only: it never starts, resumes or stops a build.
+     *
+     * @param hasBuild           whether a build is currently handed to the engine
+     * @param creativeOn         the {@code #chika_builder creative} setting
+     * @param actuallyInCreative the player's real gamemode
+     * @param occupiedSlots      how many of the 36 storage slots are in use
+     * @param required           distinct material types the build needs
+     * @param present            of those, how many the inventory already covers
+     * @param missingLines       one line per material that is still missing
+     */
+    public record Diagnostics(boolean hasBuild, boolean creativeOn, boolean actuallyInCreative,
+                              int occupiedSlots, int required, int present,
+                              List<String> missingLines) {
+
+        /** How many materials are still missing. */
+        public int missing() {
+            return this.missingLines.size();
+        }
+    }
+
+    /**
+     * Builds the diagnostic snapshot for the running build.
+     *
+     * <p>Everything is measured, never assumed: the gamemode is read from the
+     * client, the slot count from the player's real storage, and the materials
+     * from a fresh re-plan of the active schematic against that same inventory.
+     */
+    public Diagnostics diagnostics() {
+        boolean creativeOn = this.settings.isCreativeEnabled();
+        boolean inCreative = this.player.isActuallyInCreative();
+
+        if (this.activeSchematic == null || this.activeOrigin == null) {
+            return new Diagnostics(false, creativeOn, inCreative, this.player.occupiedSlots(),
+                    0, 0, List.of());
+        }
+
+        try {
+            List<MaterialNeed> required =
+                    this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
+            MaterialPlan plan = planWith(required);
+            List<String> missing = new ArrayList<>();
+            int present = 0;
+
+            for (MaterialNeed need : plan.needs()) {
+                if (need.outstanding() == 0 || need.isSatisfied()) {
+                    present++;
+                } else {
+                    missing.add(need.item().itemId() + " " + need.item().displayName()
+                            + " x" + need.outstanding());
+                }
+            }
+
+            return new Diagnostics(true, creativeOn, inCreative, this.player.occupiedSlots(),
+                    plan.needs().size(), present, missing);
+        } catch (SchematicAnalyzer.SchematicAnalysisException e) {
+            return new Diagnostics(true, creativeOn, inCreative, this.player.occupiedSlots(),
+                    0, 0, List.of("(schematic could not be re-read: " + e.getMessage() + ")"));
+        }
+    }
+
+    /**
+     * The exact materials the build still does not have, one {@code "Name xN"}
+     * line each.
      *
      * <p>Used for the honest {@code Missing: ...} report when supply could not
      * close the gap: it is the inventory speaking, not a delivery claim.
@@ -266,6 +336,32 @@ public final class BuildCoordinator {
         }
 
         return lines;
+    }
+
+    /**
+     * Logs exactly which materials are still outstanding, one line each.
+     *
+     * <p>A bare total is not diagnostic: a live stall has to name the blocks
+     * responsible, with their ids, numbers and how the planner resolved them.
+     */
+    private void logRemainingRequirements(MaterialPlan plan) {
+        boolean any = false;
+
+        for (MaterialNeed need : plan.needs()) {
+            if (need.isSatisfied() || need.outstanding() <= 0) {
+                continue;
+            }
+
+            any = true;
+            LOGGER.info("[Chika Builder] Remaining requirements: material={} name={} "
+                            + "outstanding={} held={} resolution={}",
+                    need.item().itemId(), need.item().displayName(), need.outstanding(),
+                    need.inInventory(), need.resolution());
+        }
+
+        if (!any) {
+            LOGGER.info("[Chika Builder] Remaining requirements: none");
+        }
     }
 
     /**

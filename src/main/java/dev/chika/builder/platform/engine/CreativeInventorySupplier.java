@@ -169,9 +169,22 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
         // player.inventoryMenu.getSlot(slot). A container index would land in
         // the crafting/armor slots (or be dropped entirely for slot 0), so the
         // server would never actually receive the blocks.
-        addToCreative(minecraft, merged, Inventories.menuSlotOfContainerIndex(slot));
+        int menuSlot = Inventories.menuSlotOfContainerIndex(slot);
+        addToCreative(minecraft, merged, menuSlot);
+
+        // Diagnostics: record exactly where this landed, so a live log shows the
+        // real slot and stack rather than an assumption.
+        this.lastWrite = "slot " + slot + " (menu " + menuSlot + ") x" + merged.getCount();
 
         return added;
+    }
+
+    /** Where the most recent hand-over went; diagnostics only. */
+    private String lastWrite = "none";
+
+    @Override
+    public String lastWrite(String itemId) {
+        return this.lastWrite;
     }
 
     /** Mirrors a slot write into the open inventory menu, when there is one. */
