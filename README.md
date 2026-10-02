@@ -21,7 +21,7 @@ Builder places the blocks for you.
 - **Creative building mode** — optional and off by default. When you are actually in Creative, Chika Builder hands the missing blocks over from Creative and confirms they arrived. It never changes your game mode; it only reads it.
 - **Optional auto-shop purchasing** — off by default, so Chika Builder never spends your money unless you ask it to.
 - **Filename tab-completion** — press Tab to see the schematics you have.
-- **D Web Studio branding** — settings screen, a faint corner watermark, and the mod icon.
+- **D Web Studio branding** — settings screen credit and the mod icon. Nothing is drawn on the gameplay HUD.
 - **A focused command set** — Chika Builder keeps only its own two commands and removes every other command from the built-in engine.
 
 > **About auto-shop:** Chika Builder does not come with a shop of its own, because `/shop`
@@ -218,24 +218,26 @@ Open the settings screen by binding a key under:
 **Options → Controls → Key Binds → "Open Chika Builder Settings"**
 
 It ships **unbound**, so it never takes a key you already use. The screen has
-three buttons:
+two buttons:
 
 - **Creative Building: ON/OFF**
 - **Auto-Shop: ON/OFF**
-- **D Web Studio Watermark: ON/OFF**
 
-The watermark is a small, faint "D Web Studio" in the bottom-right corner. It
-is **on by default**, disappears when you hide the HUD with F1, and never
-appears in chat.
+There is **no watermark**. Chika Builder draws nothing on the gameplay screen
+whatsoever; the corner watermark that earlier versions shipped has been removed
+outright, not hidden. D Web Studio is still credited as the studio behind the
+product on this screen and in the mod metadata.
 
 You can also edit the file directly:
 
 ```json
-{ "watermarkEnabled": false }
+{ "creativeEnabled": true, "shopEnabled": false }
 ```
 
 A missing or unreadable config file falls back to the defaults, so the mod still
-starts cleanly.
+starts cleanly. An older config that still contains a `watermarkEnabled` key is
+read without complaint, so upgrading never loses your other settings; the key is
+simply no longer written back, because it no longer does anything.
 
 ---
 

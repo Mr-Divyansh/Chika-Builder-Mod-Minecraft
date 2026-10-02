@@ -11,56 +11,68 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Tests for the configurable D Web Studio watermark setting. */
+/**
+ * Tests for the persisted settings.
+ *
+ * <p>The old D Web Studio watermark setting was removed with the HUD overlay.
+ * Its key is still accepted on read so existing config files keep loading, but
+ * it is no longer written and controls nothing; the tests below pin both halves
+ * of that contract.
+ */
 class ChikaConfigTest {
 
     @Test
-    void watermarkDefaultsToOn(@TempDir Path dir) {
-        ChikaConfig config = ChikaConfig.loadFrom(dir.resolve("chika-builder.json"));
-        assertTrue(config.isWatermarkEnabled(), "watermark must default to ON");
-    }
-
-    @Test
-    void toggleFlipsWatermark(@TempDir Path dir) {
-        ChikaConfig config = ChikaConfig.loadFrom(dir.resolve("chika-builder.json"));
-
-        config.toggleWatermark();
-        assertFalse(config.isWatermarkEnabled());
-
-        config.toggleWatermark();
-        assertTrue(config.isWatermarkEnabled());
-    }
-
-    @Test
-    void settingIsPersistedAcrossReloads(@TempDir Path dir) {
+    void anExistingWatermarkKeyStillLoadsWithoutFailing(@TempDir Path dir) throws IOException {
+        // Backward compatibility: a player who already has the key in their
+        // config must not lose their other settings, and the file must still
+        // load even though the key now controls nothing.
         Path file = dir.resolve("chika-builder.json");
+        Files.writeString(file, "{\"watermarkEnabled\": false, \"creativeEnabled\": true}",
+                StandardCharsets.UTF_8);
 
-        ChikaConfig first = ChikaConfig.loadFrom(file);
-        first.setWatermarkEnabled(false);
+        ChikaConfig config = ChikaConfig.loadFrom(file);
 
-        // A fresh load must observe the saved OFF state.
-        ChikaConfig reloaded = ChikaConfig.loadFrom(file);
-        assertFalse(reloaded.isWatermarkEnabled(), "watermark OFF must persist");
+        assertTrue(config.isCreativeEnabled(),
+                "an existing file must still load its live settings");
+        assertFalse(config.isWatermarkEnabled(),
+                "the retired key is still parsed, it simply has no effect");
     }
 
     @Test
-    void savedFileContainsTheToggle(@TempDir Path dir) throws IOException {
+    void theRetiredWatermarkKeyIsNoLongerWritten(@TempDir Path dir) throws IOException {
+        // The watermark is gone, so persisting a dead key would only mislead
+        // anyone reading their own config file.
         Path file = dir.resolve("chika-builder.json");
         ChikaConfig config = ChikaConfig.loadFrom(file);
         config.setWatermarkEnabled(false);
+        config.save();
 
         String json = Files.readString(file, StandardCharsets.UTF_8);
-        assertTrue(json.contains("watermarkEnabled"), json);
-        assertTrue(json.contains("false"), json);
+        assertFalse(json.contains("watermarkEnabled"),
+                "the removed watermark must not be written back: " + json);
     }
 
     @Test
-    void corruptConfigFallsBackToDefaultOn(@TempDir Path dir) throws IOException {
+    void creativeAndShopKeysAreStillPersisted(@TempDir Path dir) throws IOException {
+        // The settings that still exist must keep working exactly as before.
+        Path file = dir.resolve("chika-builder.json");
+        ChikaConfig config = ChikaConfig.loadFrom(file);
+        config.setCreativeEnabled(true);
+        config.setShopEnabled(true);
+
+        String json = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(json.contains("creativeEnabled"), json);
+        assertTrue(json.contains("shopEnabled"), json);
+    }
+
+    @Test
+    void corruptConfigFallsBackToSafeDefaults(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("chika-builder.json");
         Files.writeString(file, "{ this is not valid json", StandardCharsets.UTF_8);
 
         ChikaConfig config = ChikaConfig.loadFrom(file);
-        assertTrue(config.isWatermarkEnabled(), "corrupt config must fall back to ON");
+        assertFalse(config.isCreativeEnabled(), "corrupt config must fall back to OFF");
+        assertFalse(config.isShopEnabled(), "corrupt config must fall back to OFF");
     }
 
     // -----------------------------------------------------------------

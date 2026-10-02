@@ -57,13 +57,28 @@ public final class ChikaBuilderCommand extends Command {
 
     private final BuildCoordinator coordinator;
 
+    /**
+     * One-line movement-watchdog status for {@code #chika_builder debug}.
+     *
+     * <p>Supplied by the client, and {@code null} when no watchdog is wired (for
+     * example in tests). Debug output must never fail because a diagnostic is
+     * missing, so it degrades to a plain "unavailable".
+     */
+    private final java.util.function.Supplier<String> movementStatus;
+
     public ChikaBuilderCommand(IBaritone engine) {
         this(engine, null);
     }
 
     public ChikaBuilderCommand(IBaritone engine, BuildCoordinator coordinator) {
+        this(engine, coordinator, null);
+    }
+
+    public ChikaBuilderCommand(IBaritone engine, BuildCoordinator coordinator,
+                               java.util.function.Supplier<String> movementStatus) {
         super(engine, COMMAND_NAME);
         this.coordinator = coordinator;
+        this.movementStatus = movementStatus;
     }
 
     @Override
@@ -156,6 +171,24 @@ public final class ChikaBuilderCommand extends Command {
 
         for (String line : diagnostics.missingLines()) {
             say("  " + line);
+        }
+
+        // The movement watchdog's own view of the build. A stall shows up here
+        // as a rising stationaryTicks count, which is what identifies a build
+        // that is running but not going anywhere.
+        say("Movement watchdog: " + movementStatus());
+    }
+
+    /** Never throws: a missing diagnostic must not break {@code debug}. */
+    private String movementStatus() {
+        if (this.movementStatus == null) {
+            return "unavailable";
+        }
+        try {
+            String status = this.movementStatus.get();
+            return status == null ? "unavailable" : status;
+        } catch (Throwable t) {
+            return "unavailable";
         }
     }
 

@@ -59,11 +59,23 @@ class LayeringTest {
     }
 
     @Test
-    void watermarkLogicIsSeparateFromTheBuilder() {
-        // Watermark / UI code must not be reachable from the build service,
-        // so branding can never interfere with building or block placement.
+    void uiLogicIsSeparateFromTheBuilder() {
+        // UI code must not be reachable from the build service, so branding can
+        // never interfere with building or block placement.
         assertFalse(dependsOnAny(ChikaBuildService.class, "dev.chika.builder.ui"));
         assertFalse(dependsOnAny(ChikaBuildService.class, "dev.chika.builder.config"));
+    }
+
+    @Test
+    void theWatchdogStaysBackendAgnostic() {
+        // The movement watchdog owns stall *detection* and the decision to
+        // re-plan; the engine still owns movement. Keeping the watchdog free of
+        // engine and Minecraft types is what makes every recovery branch
+        // testable without a running game.
+        assertFalse(dependsOnAny(
+                dev.chika.builder.build.MovementWatchdog.class, "baritone."));
+        assertFalse(dependsOnAny(
+                dev.chika.builder.build.MovementWatchdog.class, "net.minecraft."));
     }
 
     private static boolean dependsOnAny(Class<?> type, String prefix) {

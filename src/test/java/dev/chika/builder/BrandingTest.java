@@ -11,8 +11,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for the D Web Studio branding constants.
  *
- * <p>The watermark default must stay ON and the text must be exactly
- * "D Web Studio", so these assertions guard against accidental edits.
+ * <p>The studio name must stay exactly "D Web Studio" for documentation,
+ * credits and the settings screen. {@code Branding.WATERMARK_TEXT} is retained
+ * as a documentation constant only: the gameplay HUD watermark it once fed was
+ * removed outright, and {@code NoGameplayWatermarkTest} proves no overlay draws
+ * it.
  */
 class BrandingTest {
 

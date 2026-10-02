@@ -17,12 +17,22 @@ import java.nio.file.Path;
  * Tiny persisted settings holder.
  *
  * <p>Kept deliberately minimal and cheap: values are read once at startup and
- * only written when the player actually changes a setting, so the watermark
- * costs nothing per frame and never touches the build logic.
+ * only written when the player actually changes a setting, so nothing here
+ * costs anything per frame and never touches the build logic.
+ *
+ * <p><b>The watermark setting is gone.</b> The bottom-right "D Web Studio"
+ * watermark was removed from the gameplay HUD outright, so there is nothing
+ * left to toggle. The old {@code watermarkEnabled} key is still accepted when
+ * reading an existing config file - a player's saved settings never fail to
+ * load - but it is no longer written back out and controls nothing.
  */
 public final class ChikaConfig {
 
-    /** D Web Studio watermark toggle. Defaults to ON. */
+    /**
+     * @deprecated no longer used; the HUD watermark was removed. Retained only
+     * so an existing config file that still contains the key loads cleanly.
+     */
+    @Deprecated
     private boolean watermarkEnabled = true;
 
     /**
@@ -62,20 +72,25 @@ public final class ChikaConfig {
         return instance;
     }
 
+    /**
+     * @deprecated the HUD watermark was removed, so this setting no longer has
+     * any effect. Kept so existing saved configs still load.
+     */
+    @Deprecated
     public boolean isWatermarkEnabled() {
         return this.watermarkEnabled;
     }
 
+    /** @deprecated the HUD watermark was removed; this no longer has any effect. */
+    @Deprecated
     public void setWatermarkEnabled(boolean enabled) {
-        if (this.watermarkEnabled == enabled) {
-            return;
-        }
         this.watermarkEnabled = enabled;
-        save();
     }
 
+    /** @deprecated the HUD watermark was removed; this no longer has any effect. */
+    @Deprecated
     public void toggleWatermark() {
-        setWatermarkEnabled(!this.watermarkEnabled);
+        this.watermarkEnabled = !this.watermarkEnabled;
     }
 
     // ---------------------------------------------------------------------
@@ -179,7 +194,10 @@ public final class ChikaConfig {
                 Files.createDirectories(file.getParent());
             }
             JsonObject json = new JsonObject();
-            json.addProperty("watermarkEnabled", this.watermarkEnabled);
+            // watermarkEnabled is deliberately NOT written back: the HUD
+            // watermark was removed, so persisting a dead key would only
+            // mislead. An existing file that still contains it is still read
+            // without complaint, so nobody's settings are lost.
             json.addProperty("creativeEnabled", this.creativeEnabled);
             json.addProperty("shopEnabled", this.shopEnabled);
             try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {

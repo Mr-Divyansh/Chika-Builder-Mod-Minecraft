@@ -77,6 +77,32 @@ public final class MinecraftPlayerContext implements PlayerContext {
     }
 
     /**
+     * The player's current block position, for the movement watchdog.
+     *
+     * <p>Strictly read-only. Nothing in Chika Builder ever writes to the
+     * player's position: the watchdog only reads it to decide whether the
+     * builder is stuck, and recovery is a re-plan request to the engine, never
+     * a movement.
+     */
+    @Override
+    public dev.chika.builder.build.material.PlayerPosition playerPosition() {
+        try {
+            net.minecraft.client.player.LocalPlayer player =
+                    net.minecraft.client.Minecraft.getInstance().player;
+
+            if (player == null) {
+                return null;
+            }
+
+            net.minecraft.core.BlockPos pos = player.blockPosition();
+            return new dev.chika.builder.build.material.PlayerPosition(
+                    pos.getX(), pos.getY(), pos.getZ());
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
      * Total number of matching items in the player's 36 storage slots
      * (hotbar and main rows).
      *

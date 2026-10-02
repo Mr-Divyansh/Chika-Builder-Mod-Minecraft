@@ -32,7 +32,8 @@ promised yet.
   re-swept for the first 20 seconds.
 - `#chika_builder creative|shop true|false` + persistence in
   `config/chika-builder.json`.
-- Settings screen (unbound key), D Web Studio watermark (default ON, F1-safe).
+- Settings screen (unbound key). The D Web Studio watermark that originally
+  accompanied it has since been removed from the gameplay HUD.
 
 ### Phase 5 — Product hardening (this release)
 - Engine merged into a single jar: one Mods-screen entry, one file to install.

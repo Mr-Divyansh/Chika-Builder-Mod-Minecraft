@@ -100,6 +100,94 @@ public final class ChikaBuildService implements BuildService {
         }
     }
 
+    /**
+     * True while the engine is actively moving or calculating a path.
+     *
+     * <p>Read-only diagnostics for the movement watchdog. A long path
+     * calculation looks exactly like standing still from outside, so the
+     * watchdog needs this to avoid "recovering" a build that is really working.
+     */
+    @Override
+    public boolean isPathing() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getPathingBehavior() == null) {
+                return false;
+            }
+            return engine.getPathingBehavior().isPathing()
+                    || engine.getPathingBehavior().getInProgress().isPresent();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** The engine's current movement goal, for stall diagnostics. */
+    @Override
+    public String describeGoal() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getPathingBehavior() == null) {
+                return "unavailable";
+            }
+            var goal = engine.getPathingBehavior().getGoal();
+            return goal == null ? "none" : goal.getClass().getSimpleName();
+        } catch (Throwable t) {
+            return "unavailable";
+        }
+    }
+
+    /**
+     * Phase 1 of a re-plan: pause the builder so the engine cancels its path.
+     *
+     * <p><b>Why pause/resume and not {@code cancelEverything()}.</b> Both
+     * {@code IPathingBehavior.cancelEverything()} and {@code forceCancel()}
+     * route through the engine's internal {@code PathingControlManager}, which
+     * calls {@code onLostControl()} on every registered process. On
+     * {@code BuilderProcess} that method nulls the schematic field, and
+     * {@code isActive()} is implemented as {@code schematic != null} - so those
+     * calls would silently discard the build and make the supervisor believe it
+     * had finished. Verified against the engine bytecode, not assumed.
+     *
+     * <p>{@code pause()} is a single boolean. On the engine's next tick it
+     * returns {@code CANCEL_AND_SET_GOAL}, which is what cancels the current
+     * path. {@link #finishRepath()} releases it on a later tick.
+     */
+    @Override
+    public boolean beginRepath() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getBuilderProcess() == null
+                    || !engine.getBuilderProcess().isActive()) {
+                return false;
+            }
+            engine.getBuilderProcess().pause();
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Phase 2 of a re-plan: release the pause so the engine re-plans.
+     *
+     * <p>Intentionally a later tick than {@link #beginRepath()}. The schematic is
+     * untouched, already-placed blocks are kept, and the player is never moved:
+     * the engine's own pathfinder does the work under normal collision rules.
+     */
+    @Override
+    public void finishRepath() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getBuilderProcess() == null
+                    || !engine.getBuilderProcess().isActive()) {
+                return;
+            }
+            engine.getBuilderProcess().resume();
+        } catch (Throwable ignored) {
+            // Nothing to release.
+        }
+    }
+
     @Override
     public void resume() {
         try {

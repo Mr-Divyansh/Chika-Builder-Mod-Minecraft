@@ -31,6 +31,17 @@ public interface PlayerContext {
         return 0;
     }
 
+    /**
+     * The player's current block position, or {@code null} when unavailable.
+     *
+     * <p>Used by the movement watchdog to tell "standing still" from "moving".
+     * Read-only diagnostics: Chika Builder never writes to the player's
+     * position, and never uses this to move the player anywhere.
+     */
+    default dev.chika.builder.build.material.PlayerPosition playerPosition() {
+        return null;
+    }
+
     /** A context used before a world is loaded; reports no materials. */
     PlayerContext NONE = new PlayerContext() {
         @Override

@@ -108,6 +108,7 @@ public final class BuildSupervisor {
     private final Progress progress;
 
     private boolean active;
+    private boolean supplyInFlight;
     private int attempts;
     private Status status = Status.IDLE;
 
@@ -121,6 +122,7 @@ public final class BuildSupervisor {
     public void begin() {
         this.active = true;
         this.attempts = 0;
+        this.supplyInFlight = false;
         this.status = Status.RUNNING;
     }
 
@@ -128,6 +130,7 @@ public final class BuildSupervisor {
     public void end() {
         this.active = false;
         this.attempts = 0;
+        this.supplyInFlight = false;
         this.status = Status.IDLE;
     }
 
@@ -142,6 +145,17 @@ public final class BuildSupervisor {
     /** Attempts used since the last successful supply round. */
     public int attempts() {
         return this.attempts;
+    }
+
+    /**
+     * True while a supply round is in flight.
+     *
+     * <p>The movement watchdog uses this so it never "recovers" a build that is
+     * merely waiting for materials: fetching blocks legitimately looks like the
+     * player standing still.
+     */
+    public boolean isSupplyPending() {
+        return this.active && this.supplyInFlight;
     }
 
     /**
@@ -201,6 +215,9 @@ public final class BuildSupervisor {
         SupplyResult result = SupplyResult.none();
 
         try {
+            // Flagged across the call so the movement watchdog can tell a
+            // build that is waiting on materials from one that is stalled.
+            this.supplyInFlight = true;
             SupplyResult supplied = this.supply.supplyOutstanding();
             if (supplied != null) {
                 result = supplied;
@@ -208,6 +225,8 @@ public final class BuildSupervisor {
         } catch (Throwable t) {
             // A supplier that throws is a supplier that supplied nothing.
             result = SupplyResult.none();
+        } finally {
+            this.supplyInFlight = false;
         }
 
         if (result.satisfied() && result.delivered() > 0) {

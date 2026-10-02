@@ -10,14 +10,17 @@ import net.minecraft.network.chat.Component;
 /**
  * Chika Builder settings + about screen.
  *
- * <p>This is the primary home for the D Web Studio branding, so the watermark
+ * <p>This is the primary home for the D Web Studio branding, so the studio
  * credit is always visible without spamming chat. It also holds the persisted
  * settings:
  * <ul>
- *   <li>D Web Studio watermark ON/OFF (default ON)</li>
  *   <li>Creative-mode building ON/OFF (default OFF)</li>
  *   <li>Auto-shop ON/OFF (default OFF)</li>
  * </ul>
+ *
+ * <p>There is no watermark toggle here, and no watermark. The HUD overlay that
+ * used to sit in the bottom-right corner was removed outright, so this screen no
+ * longer offers a switch for something that cannot be turned on.
  *
  * <p>Every toggle writes through {@link ChikaConfig}, so the values survive a
  * restart. The same settings are available in chat via
@@ -62,17 +65,8 @@ public final class ChikaSettingsScreen extends Screen {
                 .bounds(centreX - 100, rowY + ROW, 200, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(
-                        watermarkButtonText(),
-                        button -> {
-                            ChikaConfig.get().toggleWatermark();
-                            button.setMessage(watermarkButtonText());
-                        })
-                .bounds(centreX - 100, rowY + ROW * 2, 200, 20)
-                .build());
-
         this.addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                .bounds(centreX - 100, rowY + ROW * 3 + 8, 200, 20)
+                .bounds(centreX - 100, rowY + ROW * 2 + 8, 200, 20)
                 .build());
     }
 
@@ -101,10 +95,6 @@ public final class ChikaSettingsScreen extends Screen {
         if (this.minecraft != null) {
             this.minecraft.setScreen(this.parent);
         }
-    }
-
-    private static Component watermarkButtonText() {
-        return label("D Web Studio Watermark", ChikaConfig.get().isWatermarkEnabled());
     }
 
     private static Component creativeButtonText() {

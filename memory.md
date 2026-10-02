@@ -9,7 +9,6 @@ One file: **`.minecraft/config/chika-builder.json`**
 
 ```json
 {
-  "watermarkEnabled": true,
   "creativeEnabled": false,
   "shopEnabled": false
 }
@@ -17,7 +16,7 @@ One file: **`.minecraft/config/chika-builder.json`**
 
 | Key | Setting command | Default | Meaning |
 |---|---|---|---|
-| `watermarkEnabled` | settings screen toggle | `true` | show the D Web Studio watermark |
+| `watermarkEnabled` | *(removed)* | — | retired: the HUD watermark was deleted. Still read from an existing file so nothing breaks, but never written and it controls nothing. |
 | `creativeEnabled` | `#chika_builder creative true\|false` | `false` | Creative supply rung is *allowed* |
 | `shopEnabled` | `#chika_builder shop true\|false` | `false` | automatic purchasing is *allowed* |
 
@@ -26,8 +25,8 @@ Rules (`ChikaConfig`):
 - **Written only when a value actually changes.** Nothing is written per tick
   or per build, so the file costs nothing at runtime.
 - **A missing file is created with defaults** on first load.
-- **A corrupt or unreadable file falls back to defaults** — watermark on,
-  creative off, shop off — and the game still starts.
+- **A corrupt or unreadable file falls back to defaults** — creative off,
+  shop off — and the game still starts.
 - **Forward compatible:** keys written by older versions are simply absent and
   keep their default, so downgrading and upgrading both load cleanly.
 - **Backwards compatible:** unknown extra keys are ignored.

@@ -52,6 +52,50 @@ public interface BuildService {
     void resume();
 
     /**
+     * True when the backend is actively moving the player or calculating a
+     * path right now.
+     *
+     * <p>Used by the movement watchdog to tell a genuine stall from ordinary
+     * work: a long path calculation is invisible from outside and looks
+     * identical to standing still.
+     *
+     * <p>Defaults to {@code false}, so a backend that cannot report this simply
+     * never claims to be pathing.
+     */
+    default boolean isPathing() {
+        return false;
+    }
+
+    /** The backend's current movement goal, for stall diagnostics. */
+    default String describeGoal() {
+        return "unavailable";
+    }
+
+    /**
+     * Phase 1 of a re-plan: asks the backend to stop acting on its current path.
+     *
+     * <p>Paired with {@link #finishRepath()} on a later tick. The engine only
+     * discards a stale path when it observes the paused state on one of its own
+     * ticks, so the two must not be collapsed into a single call.
+     *
+     * @return true if the request was accepted
+     */
+    default boolean beginRepath() {
+        return false;
+    }
+
+    /**
+     * Phase 2 of a re-plan: lets the backend act again so it re-plans.
+     *
+     * <p>Implementations must keep the build and any already-placed blocks. They
+     * must not teleport, nudge or otherwise move the player, and must not bypass
+     * collision or pathfinding.
+     */
+    default void finishRepath() {
+        // No safe recovery available.
+    }
+
+    /**
      * Cancels any in-flight build started through this service.
      *
      * @return true if a running build was cancelled

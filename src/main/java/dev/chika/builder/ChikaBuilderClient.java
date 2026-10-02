@@ -7,9 +7,11 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.build.BuildService;
 import dev.chika.builder.build.BuildSupervisor;
+import dev.chika.builder.build.MovementWatchdog;
 import dev.chika.builder.build.material.CreativeReport;
 import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.build.material.PlayerContext;
+import dev.chika.builder.build.material.PlayerPosition;
 import dev.chika.builder.build.material.SchematicAnalyzer;
 import dev.chika.builder.build.shop.PurchaseOrchestrator;
 import dev.chika.builder.command.ChikaBuildCommand;
@@ -24,7 +26,6 @@ import dev.chika.builder.platform.engine.MinecraftPlayerContext;
 import dev.chika.builder.schematic.SchematicLocator;
 import dev.chika.builder.ui.ChikaChat;
 import dev.chika.builder.ui.ChikaSettingsScreen;
-import dev.chika.builder.ui.WatermarkHud;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -63,6 +64,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
     private BuildService buildService;
     private BuildCoordinator coordinator;
     private BuildSupervisor supervisor;
+    private MovementWatchdog watchdog;
     private KeyMapping openSettingsKey;
 
     /** Ticks remaining in the periodic command-lockdown re-check. */
@@ -157,6 +159,60 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                 () -> this.coordinator.supplyOutstanding(),
                 () -> this.coordinator.outstandingBlocks());
 
+        // A pause is not the only way a build can stop. The engine has no
+        // no-progress counter: if it holds a goal it cannot act on, it keeps
+        // returning that goal every tick and never pauses, so the supervisor
+        // above sees a healthy build and does nothing. This watchdog covers
+        // exactly that gap, and recovers by asking the engine to re-plan
+        // (pause/resume) - never by moving the player.
+        this.watchdog = new MovementWatchdog(
+                new MovementWatchdog.Engine() {
+                    @Override
+                    public boolean isRunning() {
+                        return buildService.isBuilding();
+                    }
+
+                    @Override
+                    public boolean isPaused() {
+                        return buildService.isPaused();
+                    }
+
+                    @Override
+                    public boolean isPathing() {
+                        return buildService.isPathing();
+                    }
+
+                    @Override
+                    public String goal() {
+                        return buildService.describeGoal();
+                    }
+
+                    @Override
+                    public boolean beginRepath() {
+                        return buildService.beginRepath();
+                    }
+
+                    @Override
+                    public void finishRepath() {
+                        buildService.finishRepath();
+                    }
+                },
+                new MovementWatchdog.World() {
+                    @Override
+                    public PlayerPosition playerPosition() {
+                        return player.playerPosition();
+                    }
+
+                    @Override
+                    public int remainingBlocks() {
+                        return ChikaBuilderClient.this.coordinator.outstandingBlocks();
+                    }
+                },
+                // A supply round in flight is real activity: the player is
+                // legitimately standing still while blocks are fetched.
+                () -> ChikaBuilderClient.this.supervisor.isSupplyPending(),
+                message -> LOGGER.info("[Chika Builder] Movement watchdog: {}", message));
+
         // The internal build engine finishes registering its own commands after
         // mod init, so the lockdown retries here and then re-checks briefly on
         // a timer. This is what makes the removal stick.
@@ -186,6 +242,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
             }
 
             this.superviseBuild();
+            this.watchMovement();
         });
     }
 
@@ -277,20 +334,80 @@ public final class ChikaBuilderClient implements ClientModInitializer {
 
     private void finishActiveBuild() {
         this.supervisor.end();
+        this.watchdog.end();
         this.coordinator.clearActiveBuild();
     }
 
     /**
-     * Registers the unobtrusive D Web Studio watermark and the settings/about
-     * screen keybind. Neither of these touches the build or pathing logic.
+     * Watches for a movement stall: a build that is running, has blocks left,
+     * and is neither moving nor placing anything.
+     *
+     * <p>This runs every client tick, alongside - not instead of - the material
+     * supervisor. The two cover different failures: the supervisor handles the
+     * engine pausing itself for missing blocks, while this handles the engine
+     * sitting on an unusable goal and never pausing at all, which is the live
+     * "player stands on one block forever" failure.
+     *
+     * <p>Diagnostics go to the log. Chat is only used when a real recovery
+     * happens, and once the bounded recovery budget is spent.
      */
-    private void registerBranding() {
-        try {
-            WatermarkHud.register();
-        } catch (Throwable t) {
-            LOGGER.warn("[{}] Watermark could not be registered", DISPLAY_NAME, t);
+    private void watchMovement() {
+        if (this.watchdog == null) {
+            return;
         }
 
+        if (!this.watchdog.isWatching()) {
+            // Only watch a build that is actually being supervised, so an
+            // idle game never accumulates stall ticks.
+            if (this.supervisor.isActive()) {
+                this.watchdog.begin();
+            } else {
+                return;
+            }
+        }
+
+        MovementWatchdog.Outcome outcome = this.watchdog.tick();
+
+        switch (outcome) {
+            case RECOVERED -> {
+                LOGGER.info("[Chika Builder] Movement watchdog: progress resumed after repath.");
+                ChikaChat.say("The builder was stuck - re-planning and continuing.");
+            }
+            case LIMITATION -> {
+                // A genuine, bounded give-up. Say so plainly rather than
+                // leaving the player watching a motionless build forever.
+                LOGGER.info("[Chika Builder] Movement watchdog: stopped after {} recovery "
+                        + "attempt(s); the engine exposes no further safe recovery.",
+                        this.watchdog.recoveries());
+                ChikaChat.say("The builder is stuck and cannot recover automatically.");
+                ChikaChat.say("See the log for the goal it was holding.");
+            }
+            case NONE -> {
+                // Healthy, or legitimately busy. Nothing to say.
+            }
+        }
+    }
+
+    /** One-line watchdog state for {@code #chika_builder debug}. */
+    private String movementStatusLine() {
+        MovementWatchdog watchdog = this.watchdog;
+        return watchdog == null ? "unavailable" : watchdog.describe();
+    }
+
+    /**
+     * Registers the settings/about screen keybind.
+     *
+     * <p>There is deliberately <b>no HUD overlay of any kind</b> here. The
+     * bottom-right "D Web Studio" watermark that used to ship with this mod was
+     * removed outright - the {@code WatermarkHud} renderer and its
+     * registration are gone, not hidden or made transparent, so no persistent
+     * branding is drawn on the gameplay screen and no HUD render path is
+     * registered at all. The studio is still credited on the settings screen
+     * and in the mod metadata; that is documentation, not an overlay.
+     *
+     * <p>None of this touches the build or pathing logic.
+     */
+    private void registerBranding() {
         // Unbound by default (GLFW_KEY_UNKNOWN == -1) so Chika Builder never
         // steals a key the player already uses.
         this.openSettingsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
@@ -321,7 +438,8 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         engine.getCommandManager().getRegistry().register(command);
 
         // Settings command: #chika_builder creative|shop true|false, and #chika_builder debug
-        engine.getCommandManager().getRegistry().register(new ChikaBuilderCommand(engine, this.coordinator));
+        engine.getCommandManager().getRegistry().register(
+                new ChikaBuilderCommand(engine, this.coordinator, this::movementStatusLine));
 
         this.enforceLockdown();
     }

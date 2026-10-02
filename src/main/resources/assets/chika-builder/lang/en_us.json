@@ -6,9 +6,6 @@
   "key.chika_builder.open_settings": "Open Chika Builder Settings",
   "chika_builder.settings.title": "Chika Builder",
   "chika_builder.settings.studio": "by D Web Studio",
-  "chika_builder.settings.watermark_label": "D Web Studio Watermark",
-  "chika_builder.settings.watermark_on": "ON",
-  "chika_builder.settings.watermark_off": "OFF",
   "chika_builder.settings.done": "Done",
   "chika_builder.settings.hint": "Build a schematic with #chika_build <file>.schematic"
 }

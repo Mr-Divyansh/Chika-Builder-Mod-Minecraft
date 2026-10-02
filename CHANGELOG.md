@@ -4,6 +4,65 @@ All notable changes to Chika Builder.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are tagged with the mod version in `gradle.properties`.
 
+## [1.1.2] — Movement stall recovery, and the HUD watermark is gone
+
+### Fixed
+
+- **The builder no longer freezes on one block.** A live test showed the player
+  standing on a placed block, not moving to the next required position, while the
+  schematic was still unfinished. Reading the bundled engine's bytecode gave the
+  exact cause: `BuilderProcess.onTick` pauses **only** when it cannot compute a
+  goal at all, and has no no-progress counter. If a goal exists but the path to
+  it is stale or unreachable, it re-returns that same goal every tick and never
+  pauses — so `isPaused()` stayed `false` forever, and `BuildSupervisor`, which
+  treated "not paused" as "making progress", had nothing to react to. A movement
+  stall produced **no state change anywhere in the build loop**.
+- **New `MovementWatchdog` closes that gap.** Every client tick it requires
+  *all* of: the build is running, blocks remain, the engine is **not** paused, no
+  supply round is in flight, the engine is not already pathing, the player's
+  block position is unchanged, and the remaining-block count is unchanged. Only
+  after 200 consecutive qualifying ticks (10 s) does it act, so placing a run of
+  blocks from one spot, calculating a path, or loading a chunk are all left
+  alone. Movement, placement, pathing, a pause, or completion all reset it.
+- **Recovery re-plans; it never moves the player.** On a confirmed stall the
+  watchdog pauses the builder for one tick and releases it on the next. The
+  engine observes the pause, returns `CANCEL_AND_SET_GOAL` and cancels its stale
+  path, then recomputes the goal and re-plans. No teleport, no random movement,
+  no bypassed collision, no faked completion. Recovery is bounded to 3 attempts
+  with a cooldown; when that budget is spent the limitation is reported instead
+  of looping.
+
+### Changed
+
+- **`cancelEverything()` / `forceCancel()` are deliberately not used.** Both
+  route through the engine's `PathingControlManager`, which calls
+  `onLostControl()` on every process; on the builder that nulls its schematic
+  field, and `isActive()` is implemented as `schematic != null`. They would have
+  silently discarded the build and let the supervisor report it complete. The
+  pause/resume pair was chosen because its bytecode shows it only flips one
+  boolean. The upstream engine jar is unmodified.
+- **The pause and the resume are on different ticks on purpose.** A synchronous
+  pause-then-resume would never let the engine *observe* the paused flag, so the
+  stale path would never actually be cancelled.
+- **Removed the bottom-right "D Web Studio" watermark from the gameplay HUD.**
+  The `WatermarkHud` renderer and its registration are deleted outright — not
+  hidden or made transparent — so no HUD render path remains and no persistent
+  branding is drawn on the gameplay screen. The settings screen credit, the mod
+  metadata, and the docs still name D Web Studio, and `[Chika Builder]` chat
+  branding and the "Report an issue" link are unchanged. The now-meaningless
+  watermark toggle and translation keys are gone; an existing
+  `watermarkEnabled` key in a player's config is still read without complaint
+  but is no longer written.
+- **`#chika_builder debug`** now also reports the movement watchdog's state,
+  including the stationary-tick counter that identifies a stall.
+
+### Known limitation
+
+- Whether the re-plan actually frees a given stall is engine behaviour and still
+  needs one live confirmation in Minecraft. If the goal is genuinely
+  unreachable, the watchdog gives up after its bounded attempts and says so; it
+  will not teleport or nudge the player to work around it.
+
 ## [1.1.2] — Creative supply never resumes a half-supplied build
 
 ### Fixed

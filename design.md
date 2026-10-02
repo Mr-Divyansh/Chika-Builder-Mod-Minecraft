@@ -10,7 +10,7 @@ Product, interface and branding rules for Chika Builder.
 | Headline form | **CHIKA BUILDER** |
 | Byline | **by D Web Studio** |
 | Mod id | `chika-builder` |
-| Watermark text | `D Web Studio` |
+| Watermark text | *(removed — see Interface)* |
 
 All of these live in one class — `Branding` — so every surface stays
 consistent, and `BrandingTest` fails the build if any of them drift.
@@ -68,8 +68,10 @@ Unknown setting 'creativ'. Use: creative or shop.
   pointing at `#chika_builder`, and a `Done` button.
 - **Keybind** — ships **unbound** (`GLFW_KEY_UNKNOWN`), so Chika Builder never
   steals a key the player already uses.
-- **Watermark** — a small, faint `D Web Studio` in the corner; **on by default**,
-  respects F1 (hidden HUD), never appears in chat, and is itself a toggle.
+- **Watermark** — **removed.** The bottom-right `D Web Studio` overlay was
+  deleted outright (`WatermarkHud` and its registration). Nothing is drawn on
+  the gameplay screen. The studio name still appears on the settings screen and
+  in the mod metadata, which is documentation rather than an overlay.
 - **Icon** — `assets/chika-builder/icon.png`, a real square PNG so the Mods
   screen shows the product instead of a `?`. Pinned by `ModIconTest`.
 - **Colour** — the UI uses Minecraft's own widgets and palette; no custom

@@ -45,7 +45,7 @@ being placed.
 | `…builder.build.shop` | buying the shortfall, honestly | no (interfaces only) |
 | `…builder.schematic` | resolving typed names against `.minecraft/schematics/` | no |
 | `…builder.config` | persisted settings | Fabric Loader only (path lookup) |
-| `…builder.ui` | settings screen, watermark | yes |
+| `…builder.ui` | settings screen (no HUD overlay) | yes |
 | `…builder.platform.engine` | the actual build/pathing implementation | yes — **this is the only implementation package** |
 
 The rule the tests enforce: `build/`, `material/`, `shop/` and `schematic/` are
@@ -67,8 +67,9 @@ and is implemented in `platform/engine`.
 5. Keep re-running the lockdown for the first 400 ticks, because the engine
    registers its own commands *after* mod initialisation. Anything that is not
    ours is unregistered, not merely hidden.
-6. Register the D Web Studio watermark, the (unbound by default) settings
-   keybind, and the settings screen.
+6. Register the (unbound by default) settings keybind and the settings screen.
+   No HUD overlay is registered: the D Web Studio watermark was removed
+   outright, and `NoGameplayWatermarkTest` fails if any HUD element returns.
 
 ## Engine integration
 
