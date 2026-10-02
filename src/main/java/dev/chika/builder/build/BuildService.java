@@ -72,6 +72,26 @@ public interface BuildService {
     }
 
     /**
+     * A goal identity that changes when a genuinely <b>different</b> target is
+     * chosen, used to tell real re-planning from the engine handing back the
+     * same target it already had.
+     *
+     * <p>Defaults to {@link #describeGoal()} so a backend that cannot report
+     * more still works, just with a weaker signal.
+     */
+    default String describeGoalIdentity() {
+        return describeGoal();
+    }
+
+    /**
+     * Where the backend's current path is heading, or a sentinel when it has
+     * none. A second progress signal for the movement watchdog.
+     */
+    default String describePathDestination() {
+        return "none";
+    }
+
+    /**
      * Phase 1 of a re-plan: asks the backend to stop acting on its current path.
      *
      * <p>Paired with {@link #finishRepath()} on a later tick. The engine only

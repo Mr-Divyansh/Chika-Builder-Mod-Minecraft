@@ -82,6 +82,18 @@ public final class MovementWatchdog {
     public static final int MAX_RECOVERIES = 3;
 
     /**
+     * Ticks allowed for a recovery to show a result before it is called failed.
+     *
+     * <p>The previous version returned {@code RECOVERED} the instant the engine
+     * accepted the pause, which is why a live log claimed "progress resumed
+     * after repath" three times while {@code remaining} stayed at 52 and the
+     * goal stayed {@code JankyGoalComposite}. A recovery is only reported as
+     * successful once the goal, the path destination or the world has actually
+     * changed; otherwise it counts against the budget as a failure.
+     */
+    public static final int DEFAULT_VERIFY_TICKS = 60;
+
+    /**
      * The engine, reduced to exactly what the watchdog needs.
      *
      * <p>Deliberately narrow. There is no "move the player" or "teleport" method
@@ -101,6 +113,26 @@ public final class MovementWatchdog {
 
         /** The engine's current goal, for diagnostics. Never null. */
         String goal();
+
+        /**
+         * A stable identity for the current goal that changes when the engine
+         * picks a <b>different</b> target.
+         *
+         * <p>{@link #goal()} returns the goal's class name, which stayed
+         * {@code JankyGoalComposite} across every recovery in the live log even
+         * though the build was frozen. This returns the goal's {@code toString()}
+         * - for the engine's own goal types that embeds the target position, so
+         * it genuinely differs when a new target is chosen. It is what lets the
+         * watchdog tell "a new target was calculated" from "the same target was
+         * handed back".
+         */
+        String goalIdentity();
+
+        /**
+         * Where the engine's current path is heading, or a sentinel when it has
+         * no path. Compared between ticks as a further progress signal.
+         */
+        String pathDestination();
 
         /**
          * Phase 1 of a re-plan: ask the engine to stop acting on its current
@@ -150,7 +182,15 @@ public final class MovementWatchdog {
     public enum Outcome {
         /** Nothing to do - the build is healthy or legitimately stationary. */
         NONE,
-        /** A stall was confirmed and a repath was requested. */
+        /**
+         * A stall was confirmed and a re-plan was requested.
+         *
+         * <p>Deliberately <b>not</b> called {@code RECOVERED}: nothing is known
+         * yet about whether it worked. The result is decided by
+         * {@link #DEFAULT_VERIFY_TICKS} of watching.
+         */
+        REPATH_STARTED,
+        /** A re-plan was verified: the engine moved, placed, or re-targeted. */
         RECOVERED,
         /** A stall was confirmed but recovery is impossible or exhausted. */
         LIMITATION
@@ -174,18 +214,101 @@ public final class MovementWatchdog {
     private int tickCount;
     private boolean repathPending;
 
+    /** Last observed goal identity; part of the progress signal set. */
+    private String lastGoalIdentity = "unavailable";
+
+    /** Last observed path destination; part of the progress signal set. */
+    private String lastDestination = "none";
+
+    /**
+     * The goal identity at the moment the current recovery was requested.
+     *
+     * <p>Compared against the live goal so a recovery is only called successful
+     * when the engine actually picked a different target.
+     */
+    private String goalAtRecovery = "unavailable";
+
+    /** The destination at the moment the current recovery was requested. */
+    private String destinationAtRecovery = "none";
+
+    /** True while a requested recovery is being given time to show a result. */
+    private boolean verifying;
+
+    /** Ticks spent verifying the current recovery. */
+    private int verifyTicks;
+
+    /**
+     * Highest stationary-tick milestone already logged (0, 1, 2 or 3).
+     *
+     * <p>Reset whenever any progress signal fires, so the 5s and 10s notes are
+     * logged once per genuine stall rather than once per tick.
+     */
+    private int stallMilestone;
+
+    private final int verifyTicksLimit;
+
+    /**
+     * Which diagnostic milestone {@code stationaryTicks} has reached.
+     *
+     * @return 1 at the first stationary tick, 2 at five seconds (100 ticks),
+     *         3 at ten seconds (200 ticks), otherwise 0
+     */
+    private int milestoneFor(int stationaryTicks) {
+        if (stationaryTicks >= 200) {
+            return 3;
+        }
+        if (stationaryTicks >= 100) {
+            return 2;
+        }
+        if (stationaryTicks >= 1) {
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
+     * The full watchdog picture on one line, for the log.
+     *
+     * <p>This is the line that makes a live stall diagnosable: it names the
+     * player position, what is still outstanding, the engine's goal class, the
+     * goal identity (which embeds the target position), the path destination and
+     * whether the engine considers itself busy.
+     */
+    private String describeStall(PlayerPosition position, int remaining,
+                                String goalIdentity, String destination) {
+        return "status=watching"
+                + " player=" + (position == null ? "unavailable" : position)
+                + " remaining=" + remaining
+                + " goal=" + safeGoal()
+                + " goalIdentity=" + goalIdentity
+                + " pathDestination=" + destination
+                + " pathing=" + this.engine.isPathing()
+                + " paused=" + this.engine.isPaused()
+                + " active=" + this.engine.isRunning()
+                + " stationaryTicks=" + this.stationaryTicks
+                + " recoveries=" + this.recoveries + "/" + MAX_RECOVERIES
+                + " lastProgressTick=" + this.lastProgressTick;
+    }
+
     public MovementWatchdog(Engine engine, World world, Activity activity, Reporter reporter) {
-        this(engine, world, activity, reporter, DEFAULT_STATIONARY_TICK_LIMIT, DEFAULT_COOLDOWN_TICKS);
+        this(engine, world, activity, reporter, DEFAULT_STATIONARY_TICK_LIMIT, DEFAULT_COOLDOWN_TICKS,
+                DEFAULT_VERIFY_TICKS);
     }
 
     public MovementWatchdog(Engine engine, World world, Activity activity, Reporter reporter,
                             int tickLimit, int cooldownTicks) {
+        this(engine, world, activity, reporter, tickLimit, cooldownTicks, DEFAULT_VERIFY_TICKS);
+    }
+
+    public MovementWatchdog(Engine engine, World world, Activity activity, Reporter reporter,
+                            int tickLimit, int cooldownTicks, int verifyTicks) {
         this.engine = engine;
         this.world = world;
         this.activity = activity;
         this.reporter = reporter;
         this.tickLimit = tickLimit;
         this.cooldownTicks = cooldownTicks;
+        this.verifyTicksLimit = verifyTicks;
     }
 
     /** Starts watching a fresh build; resets every counter. */
@@ -199,6 +322,13 @@ public final class MovementWatchdog {
         this.lastMovementTick = 0;
         this.lastProgressTick = 0;
         this.tickCount = 0;
+        this.lastGoalIdentity = safeGoalIdentity();
+        this.lastDestination = safeDestination();
+        this.goalAtRecovery = this.lastGoalIdentity;
+        this.destinationAtRecovery = this.lastDestination;
+        this.verifying = false;
+        this.verifyTicks = 0;
+        this.repathPending = false;
     }
 
     /** Stops watching; used when the build ends or is abandoned. */
@@ -206,6 +336,8 @@ public final class MovementWatchdog {
         this.watching = false;
         this.stationaryTicks = 0;
         this.cooldown = 0;
+        this.verifying = false;
+        this.verifyTicks = 0;
     }
 
     /** True while a re-plan is half-done (paused, awaiting its resume tick). */
@@ -253,11 +385,18 @@ public final class MovementWatchdog {
         // tick to cancel the stale path. This is deliberately a later tick than
         // the pause, because the engine only cancels the path when its own tick
         // observes the paused flag.
+        //
+        // Verification deliberately continues on this tick rather than
+        // returning: the engine has only just been released, so the very first
+        // opportunity to pick a new target is now. Returning here would hide
+        // the re-target from the check and could report a healthy recovery as a
+        // failure.
         if (this.repathPending) {
             this.repathPending = false;
             this.engine.finishRepath();
-            this.report("repath complete - engine re-planning from its current goal");
-            return Outcome.NONE;
+            this.report("re-plan released - the engine may act again and will re-derive its "
+                    + "target from the player's current position (baseline was "
+                    + this.goalAtRecovery + ")");
         }
 
         // A finished build is never a stall. This also covers the engine
@@ -269,24 +408,60 @@ public final class MovementWatchdog {
 
         int remaining = safeRemaining();
         PlayerPosition position = safePosition();
+        String goalIdentity = safeGoalIdentity();
+        String destination = safeDestination();
 
         // --- Progress: movement resets the stationary counter. ---
-        if (position != null && !position.equals(this.lastPosition)) {
-            this.lastMovementTick = this.tickCount;
+        boolean moved = position != null && !position.equals(this.lastPosition);
+
+        if (position != null) {
             this.lastPosition = position;
-            this.stationaryTicks = 0;
-        } else {
-            if (position != null) {
-                this.lastPosition = position;
-            }
-            this.stationaryTicks++;
+        }
+
+        if (moved) {
+            this.lastMovementTick = this.tickCount;
         }
 
         // --- Progress: a placement changes the remaining count. ---
-        if (remaining >= 0 && remaining != this.lastRemaining) {
+        boolean placed = remaining >= 0 && remaining != this.lastRemaining;
+
+        if (placed) {
             this.lastProgressTick = this.tickCount;
             this.lastRemaining = remaining;
+        }
+
+        // --- Progress: a new goal identity or path destination. ---
+        // Both are genuine forward movement while the player stands still,
+        // which is exactly what the old single-signal check could not see.
+        boolean newGoal = !goalIdentity.equals(this.lastGoalIdentity);
+        boolean newPath = !destination.equals(this.lastDestination);
+
+        this.lastGoalIdentity = goalIdentity;
+        this.lastDestination = destination;
+
+        if (moved || placed || newGoal || newPath) {
             this.stationaryTicks = 0;
+            this.stallMilestone = 0;
+        } else if (position != null && remaining >= 0) {
+            // Only count a stall when both the player position and the remaining
+            // count are readable. An unreadable reading is not evidence of a
+            // stall and must never be treated as one.
+            this.stationaryTicks++;
+
+            // Logged at the moments a stall investigator actually needs, and
+            // never per tick: stationary detection starting, then 5s and 10s.
+            int milestone = milestoneFor(this.stationaryTicks);
+
+            if (milestone > this.stallMilestone) {
+                this.stallMilestone = milestone;
+                this.report("stationary " + describeStall(position, remaining, goalIdentity,
+                        destination) + " (still watching, no action taken)");
+            }
+        }
+
+        // --- Verifying a recovery that is already in flight. ---
+        if (this.verifying) {
+            return verifyRecovery(moved, placed, newGoal, newPath, goalIdentity, destination);
         }
 
         // --- Reasons this is legitimately not a stall. ---
@@ -325,7 +500,70 @@ public final class MovementWatchdog {
             return Outcome.NONE;
         }
 
-        return recover(remaining);
+        return recover(remaining, position, goalIdentity, destination);
+    }
+
+    /**
+     * Decides whether the recovery just requested actually worked.
+     *
+     * <p>This is the check the previous version never made: it reported success
+     * the moment the engine accepted the pause, so a frozen build logged
+     * "progress resumed after repath" three times while nothing had changed.
+     *
+     * <p>Success means the world moved, a block was placed, or the engine chose
+     * a genuinely different goal or path. A new goal is accepted as progress
+     * because a re-plan that converges on the same target is exactly what a
+     * healthy build looks like.
+     *
+     * @return {@link Outcome#RECOVERED} once real progress is seen, or
+     *         {@link Outcome#LIMITATION} once the budget is spent
+     */
+    private Outcome verifyRecovery(boolean moved, boolean placed, boolean newGoal,
+                                   boolean newPath, String goalIdentity, String destination) {
+
+        if (moved || placed) {
+            // Unambiguous: the world changed. This is what "recovered" means.
+            this.verifying = false;
+            this.verifyTicks = 0;
+            this.cooldown = this.cooldownTicks;
+            this.report("recovered: " + (moved ? "the player moved" : "a block was placed")
+                    + " after the re-plan");
+            return Outcome.RECOVERED;
+        }
+
+        if (newGoal || newPath) {
+            this.verifying = false;
+            this.verifyTicks = 0;
+            this.cooldown = this.cooldownTicks;
+            this.report("recovered: the engine chose a new target (goal=" + goalIdentity
+                    + " destination=" + destination + ")");
+            return Outcome.RECOVERED;
+        }
+
+        this.verifyTicks++;
+
+        if (this.verifyTicks < this.verifyTicksLimit) {
+            // Still within the engine's grace period; do not judge it yet.
+            return Outcome.NONE;
+        }
+
+        // The engine handed back exactly the target it already had.
+        this.verifying = false;
+        this.verifyTicks = 0;
+        this.stationaryTicks = 0;
+        this.cooldown = this.cooldownTicks;
+
+        this.report("recovery attempt produced no change: the engine returned the same target ("
+                + goalIdentity + ") and neither placed nor moved anything");
+
+        if (this.recoveries >= MAX_RECOVERIES) {
+            this.report("recovery limit reached (" + this.recoveries + " attempts) - the engine "
+                    + "keeps re-deriving the same target, so it is not holding a stale path");
+            return Outcome.LIMITATION;
+        }
+
+        // A fresh full window must elapse before the next attempt.
+        return Outcome.NONE;
     }
 
     /**
@@ -334,7 +572,8 @@ public final class MovementWatchdog {
      * <p>Re-checks the live state before acting, so a stall is only recovered
      * from while it is still a stall, never on stale readings.
      */
-    private Outcome recover(int remaining) {
+    private Outcome recover(int remaining, PlayerPosition position, String goalIdentity,
+                            String destination) {
         this.stationaryTicks = 0;
 
         if (!this.engine.isRunning() || this.engine.isPaused() || this.activity.isSupplyPending()) {
@@ -346,22 +585,34 @@ public final class MovementWatchdog {
             return Outcome.NONE;
         }
 
-        this.report("active=" + this.engine.isRunning()
+        // The full stall picture, on one line, at the moment it is acted on.
+        this.report("BUILD STALLED  remaining=" + recheck
+                + " player=" + (position == null ? "unavailable" : position)
+                + " goal=" + safeGoal()
+                + " goalIdentity=" + goalIdentity
+                + " pathDestination=" + destination
+                + " pathing=" + this.engine.isPathing()
                 + " paused=" + this.engine.isPaused()
-                + " remaining=" + recheck
-                + " playerStationaryTicks=" + this.tickLimit
+                + " active=" + this.engine.isRunning()
+                + " stationaryTicks=" + this.tickLimit
+                + " recoveries=" + this.recoveries + "/" + MAX_RECOVERIES
                 + " lastMovementTick=" + this.lastMovementTick
                 + " lastProgressTick=" + this.lastProgressTick);
-        this.report("goal=" + safeGoal());
 
         if (this.recoveries >= MAX_RECOVERIES) {
-            this.report("recovery limit reached (" + this.recoveries
-                    + " attempts) - the build is not advancing and the engine"
-                    + " exposes no further safe recovery");
+            this.report("RECOVERY LIMIT REACHED after " + this.recoveries
+                    + " attempt(s); the engine kept re-deriving the same target, so it is"
+                    + " not holding a stale path. Pausing the build.");
             return Outcome.LIMITATION;
         }
 
-        this.report("attempting safe repath");
+        // Snapshot what the engine is holding now, so the result can be judged
+        // against it rather than assumed.
+        this.goalAtRecovery = goalIdentity;
+        this.destinationAtRecovery = destination;
+        this.verifying = true;
+        this.verifyTicks = 0;
+
         this.recoveries++;
         this.cooldown = this.cooldownTicks;
 
@@ -369,20 +620,24 @@ public final class MovementWatchdog {
         try {
             started = this.engine.beginRepath();
         } catch (Throwable t) {
+            this.verifying = false;
             this.report("repath request failed: " + t);
             return Outcome.LIMITATION;
         }
 
         if (!started) {
-            this.report("the engine declined the repath - reporting the limitation"
+            this.verifying = false;
+            this.report("the engine declined the re-plan - reporting the limitation"
                     + " rather than moving the player");
             return Outcome.LIMITATION;
         }
 
         // Resumed on the next tick, once the engine has cancelled the stale path.
         this.repathPending = true;
-        this.report("repath requested (recovery " + this.recoveries + " of " + MAX_RECOVERIES + ")");
-        return Outcome.RECOVERED;
+        this.report("attempting re-plan (recovery " + this.recoveries + " of " + MAX_RECOVERIES
+                + ") from goal=" + goalIdentity + "; waiting up to " + this.verifyTicksLimit
+                + " ticks to see whether it actually changes anything");
+        return Outcome.REPATH_STARTED;
     }
 
     /** A one-line status summary for the log and {@code #chika_builder debug}. */
@@ -392,7 +647,12 @@ public final class MovementWatchdog {
                 + " pathing=" + this.engine.isPathing()
                 + " stationaryTicks=" + this.stationaryTicks + "/" + this.tickLimit
                 + " recoveries=" + this.recoveries + "/" + MAX_RECOVERIES
-                + " remaining=" + safeRemaining();
+                + " remaining=" + safeRemaining()
+                + " goal=" + safeGoal()
+                + " goalIdentity=" + this.lastGoalIdentity
+                + " pathDestination=" + this.lastDestination
+                + " verifying=" + this.verifying
+                + " verifyTicks=" + this.verifyTicks + "/" + this.verifyTicksLimit;
     }
 
     private int safeRemaining() {
@@ -417,6 +677,31 @@ public final class MovementWatchdog {
             return goal == null ? "unavailable" : goal;
         } catch (Throwable t) {
             return "unavailable";
+        }
+    }
+
+    /**
+     * The engine's current goal identity, defensively read.
+     *
+     * <p>Falls back to {@link #safeGoal()} so a backend that cannot supply a
+     * richer identity still reports something, and never returns null.
+     */
+    private String safeGoalIdentity() {
+        try {
+            String identity = this.engine.goalIdentity();
+            return identity == null ? safeGoal() : identity;
+        } catch (Throwable t) {
+            return safeGoal();
+        }
+    }
+
+    /** The engine's current path destination, defensively read. */
+    private String safeDestination() {
+        try {
+            String destination = this.engine.pathDestination();
+            return destination == null ? "none" : destination;
+        } catch (Throwable t) {
+            return "none";
         }
     }
 

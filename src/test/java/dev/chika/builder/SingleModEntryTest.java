@@ -82,16 +82,36 @@ class SingleModEntryTest {
 
     @Test
     void userFacingMetadataNeverNamesTheEngine() throws IOException {
-        // name / description / description_marker are all rendered in the Mods
-        // screen, so none of them may mention the engine.
+        // name and description are rendered in the Mods screen, so neither may
+        // mention the engine.
+        //
+        // "description_marker" is deliberately NOT checked here: Fabric Loader
+        // rejects it as an unsupported root entry ("Unsupported root entry
+        // \"description_marker\"" in latest.log), so it has been removed from
+        // fabric.mod.json entirely.
         String metadata = readResource("/fabric.mod.json");
 
-        for (String field : List.of("name", "description", "description_marker")) {
+        for (String field : List.of("name", "description")) {
             Matcher m = Pattern.compile("\"" + field + "\"\\s*:\\s*\"([^\"]*)\"").matcher(metadata);
             assertTrue(m.find(), "fabric.mod.json must declare a \"" + field + "\"");
             assertFalse(m.group(1).toLowerCase(Locale.ROOT).contains("baritone"),
                     "\"" + field + "\" is shown to players and must not name the engine: " + m.group(1));
         }
+    }
+
+    @Test
+    void theModJsonHasNoUnsupportedRootEntries() throws IOException {
+        // The live log showed Fabric warning about invalid mod json entries on
+        // every launch. Nothing outside the documented schema may appear.
+        String metadata = readResource("/fabric.mod.json");
+
+        assertFalse(metadata.contains("description_marker"),
+                "Fabric rejects \"description_marker\" as an unsupported root entry");
+
+        // Must still be valid JSON with the fields the loader requires.
+        assertTrue(metadata.contains("\"id\""), metadata);
+        assertTrue(metadata.contains("\"version\""), metadata);
+        assertTrue(metadata.contains("\"entrypoints\""), metadata);
     }
 
     @Test

@@ -29,6 +29,5 @@
     "minecraft": "${minecraft_version}",
     "java": ">=25",
     "fabric-api": "*"
-  },
-  "description_marker": "CHIKA BUILDER by D Web Studio is a focused schematic builder. It exposes exactly two commands, #chika_build and #chika_builder. Every other engine command is removed."
+  }
 }

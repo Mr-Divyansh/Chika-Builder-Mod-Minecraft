@@ -65,6 +65,12 @@ public final class ChikaBuilderClient implements ClientModInitializer {
     private BuildCoordinator coordinator;
     private BuildSupervisor supervisor;
     private MovementWatchdog watchdog;
+
+    /**
+     * True once the bounded give-up has been reported, so it is not repeated
+     * every tick for as long as the build stays frozen.
+     */
+    private boolean stallReported;
     private KeyMapping openSettingsKey;
 
     /** Ticks remaining in the periodic command-lockdown re-check. */
@@ -185,6 +191,16 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                     @Override
                     public String goal() {
                         return buildService.describeGoal();
+                    }
+
+                    @Override
+                    public String goalIdentity() {
+                        return buildService.describeGoalIdentity();
+                    }
+
+                    @Override
+                    public String pathDestination() {
+                        return buildService.describePathDestination();
                     }
 
                     @Override
@@ -369,18 +385,34 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         MovementWatchdog.Outcome outcome = this.watchdog.tick();
 
         switch (outcome) {
+            case REPATH_STARTED ->
+                // Deliberately silent in chat. Nothing has been proven yet: the
+                // engine has only been asked to re-plan. The previous version
+                // announced "the builder was stuck - re-planning and continuing"
+                // here, and a live log showed it printed three times while the
+                // build stayed frozen at 52 remaining blocks.
+                LOGGER.info("[Chika Builder] Movement watchdog: re-plan requested; waiting for "
+                        + "the engine to actually change something.");
             case RECOVERED -> {
-                LOGGER.info("[Chika Builder] Movement watchdog: progress resumed after repath.");
-                ChikaChat.say("The builder was stuck - re-planning and continuing.");
+                // Only ever reached once movement, a placement, or a genuinely
+                // different goal/path was observed.
+                this.stallReported = false;
+                LOGGER.info("[Chika Builder] Movement watchdog: verified - the build is "
+                        + "advancing again.");
+                ChikaChat.say("The builder was stuck - it re-planned and is moving again.");
             }
             case LIMITATION -> {
-                // A genuine, bounded give-up. Say so plainly rather than
-                // leaving the player watching a motionless build forever.
-                LOGGER.info("[Chika Builder] Movement watchdog: stopped after {} recovery "
-                        + "attempt(s); the engine exposes no further safe recovery.",
-                        this.watchdog.recoveries());
-                ChikaChat.say("The builder is stuck and cannot recover automatically.");
-                ChikaChat.say("See the log for the goal it was holding.");
+                // A genuine, bounded give-up. Reported once per stall rather
+                // than every tick: the previous version re-printed this every
+                // 10 seconds for as long as the build stayed frozen.
+                if (!this.stallReported) {
+                    this.stallReported = true;
+                    LOGGER.info("[Chika Builder] Movement watchdog: stopped after {} recovery "
+                            + "attempt(s); the engine kept re-deriving the same target.",
+                            this.watchdog.recoveries());
+                    ChikaChat.say("The builder is stuck and cannot recover automatically.");
+                    ChikaChat.say("See the log for the target it was holding.");
+                }
             }
             case NONE -> {
                 // Healthy, or legitimately busy. Nothing to say.

@@ -82,8 +82,11 @@ class BuildCoordinatorTest {
 
     private static final class StubAnalyzer implements SchematicAnalyzer {
 
-        /** Mutable so a test can simulate blocks being placed between attempts. */
+        /** Mutable, so a test can simulate blocks being placed between attempts. */
         private final List<MaterialNeed> needs;
+
+        /** Counts how many times the schematic was actually re-analysed. */
+        private int analyses;
 
         StubAnalyzer(List<MaterialNeed> needs) {
             this.needs = new ArrayList<>(needs);
@@ -91,6 +94,7 @@ class BuildCoordinatorTest {
 
         @Override
         public List<MaterialNeed> analyze(File schematic, BuildService.Origin origin) {
+            this.analyses++;
             return this.needs;
         }
     }
@@ -817,5 +821,83 @@ class BuildCoordinatorTest {
         assertEquals(0, diagnostics.required());
         assertEquals(0, diagnostics.missing());
         assertTrue(diagnostics.creativeOn());
+    }
+// --- The outstanding count must not re-parse the schematic every tick. ---
+
+    @Test
+    void repeatedOutstandingReadsDoNotReanalyseTheSchematicEveryTime() {
+        // A live log recorded 2,367 full re-analyses (and 16,569 log lines) in
+        // about two minutes, because the movement watchdog reads the remaining
+        // count on every client tick and each read re-parsed the whole file.
+        RecordingBuildService service = new RecordingBuildService();
+        StubAnalyzer analyzer =
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0)));
+        // The player must actually hold the blocks, or the build is never
+        // started and there is no active build to measure.
+        BuildCoordinator underTest = coordinator(service, analyzer,
+                new StubPlayer().set("minecraft:stone", 248),
+                new StubSettings(false, false), null);
+
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted(),
+                "precondition: a build is running");
+        analyzer.analyses = 0;
+
+        int ticks = BuildCoordinator.OUTSTANDING_REFRESH_TICKS * 5;
+        for (int i = 0; i < ticks; i++) {
+            underTest.outstandingBlocks();
+        }
+
+        // One re-analysis per refresh window, not one per tick.
+        int allowed = ticks / BuildCoordinator.OUTSTANDING_REFRESH_TICKS + 1;
+        assertTrue(analyzer.analyses <= allowed,
+                "expected at most " + allowed + " re-analyses over " + ticks
+                        + " ticks, but got " + analyzer.analyses);
+    }
+
+    @Test
+    void theOutstandingCountStillRefreshesAfterTheWindow() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubAnalyzer analyzer =
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0)));
+        BuildCoordinator underTest = coordinator(service, analyzer,
+                new StubPlayer().set("minecraft:stone", 248),
+                new StubSettings(false, false), null);
+
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted(),
+                "precondition: a build is running");
+        int first = underTest.outstandingBlocks();
+
+        // A block gets placed while the cached value is still warm.
+        analyzer.needs.set(0, need("minecraft:stone", "Stone", 247, 0, 0));
+
+        assertEquals(first, underTest.outstandingBlocks(),
+                "the count is briefly cached, which is the whole point");
+
+        for (int i = 0; i < BuildCoordinator.OUTSTANDING_REFRESH_TICKS; i++) {
+            underTest.outstandingBlocks();
+        }
+
+        assertEquals(247, underTest.outstandingBlocks(),
+                "after the refresh window the count must reflect the placed block");
+    }
+
+    @Test
+    void invalidatingForcesAnImmediateRefresh() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubAnalyzer analyzer =
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0)));
+        BuildCoordinator underTest = coordinator(service, analyzer,
+                new StubPlayer().set("minecraft:stone", 248),
+                new StubSettings(false, false), null);
+
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted(),
+                "precondition: a build is running");
+        assertEquals(248, underTest.outstandingBlocks());
+
+        analyzer.needs.set(0, need("minecraft:stone", "Stone", 200, 0, 0));
+        underTest.invalidateOutstanding();
+
+        assertEquals(200, underTest.outstandingBlocks(),
+                "an explicit invalidation must be honoured at once");
     }
 }

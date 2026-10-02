@@ -137,6 +137,58 @@ public final class ChikaBuildService implements BuildService {
     }
 
     /**
+     * A goal identity that changes when the engine picks a <b>different</b> target.
+     *
+     * <p>{@link #describeGoal()} only returns the goal's class name. A live log
+     * showed that staying useless on its own: the goal was
+     * {@code JankyGoalComposite} on every one of three re-plans while the build
+     * was frozen, because the class was the same even though the engine kept
+     * re-deriving the very same break-then-place target.
+     *
+     * <p>{@code toString()} is used instead because the engine's own goal types
+     * embed their target position in it, so this genuinely differs when a
+     * different block is being aimed at. Verified against the engine bytecode:
+     * {@code JankyGoalComposite.toString()} concatenates its two wrapped goals,
+     * and {@code GoalBreak}/{@code GoalPlace} carry their {@code BlockPos}.
+     */
+    @Override
+    public String describeGoalIdentity() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getPathingBehavior() == null) {
+                return "unavailable";
+            }
+            var goal = engine.getPathingBehavior().getGoal();
+            return goal == null ? "none" : String.valueOf(goal);
+        } catch (Throwable t) {
+            return "unavailable";
+        }
+    }
+
+    /**
+     * Where the engine's current path is heading, or {@code "none"}.
+     *
+     * <p>Read from the engine's own {@code IPath}, which exposes
+     * {@code getDest()}. Used as a second progress signal: a re-plan that
+     * produces a genuinely different destination is real forward progress even
+     * while the player has not moved yet.
+     */
+    @Override
+    public String describePathDestination() {
+        try {
+            IBaritone engine = engine();
+            if (engine == null || engine.getPathingBehavior() == null) {
+                return "none";
+            }
+            return engine.getPathingBehavior().getPath()
+                    .map(path -> String.valueOf(path.getDest()))
+                    .orElse("none");
+        } catch (Throwable t) {
+            return "none";
+        }
+    }
+
+    /**
      * Phase 1 of a re-plan: pause the builder so the engine cancels its path.
      *
      * <p><b>Why pause/resume and not {@code cancelEverything()}.</b> Both
@@ -223,10 +275,27 @@ public final class ChikaBuildService implements BuildService {
     private void applyBuildSettings() {
         Settings settings = BaritoneAPI.getSettings();
 
-        // Accurate placement: do not ignore what is already there, so the
-        // engine verifies existing blocks and only fixes the ones that are wrong.
-        // (Blocks that already match are skipped, which is the desired behaviour.)
-        settings.buildIgnoreExisting.value = false;
+        // *** THE ROOT CAUSE OF THE LIVE MOVEMENT FREEZE. ***
+        //
+        // A live log (FastClient profile 26-1-2, 16:28-16:30) showed the build
+        // frozen with the engine holding `JankyGoalComposite` and `remaining=52`
+        // for minutes, on every one of three "recoveries".
+        //
+        // Reading BuilderProcess.onTick's bytecode explains it. With
+        // buildIgnoreExisting=false, a schematic cell whose world block is
+        // non-air but does not match is NOT skipped: the engine builds a
+        // `GoalBreak` for it and wraps it with the placement goal in a
+        // `JankyGoalComposite` (see the two `new JankyGoalComposite` sites in
+        // onTick). It then tries to MINE that block. If the player cannot reach
+        // or break it, the engine re-derives the identical goal on every tick,
+        // never places anything, and never pauses - so the build looks alive
+        // (`isActive()` is `schematic != null`) while doing nothing.
+        //
+        // true means "a cell that already holds a block is left alone", which
+        // is exactly right for placing a fresh house and removes the mining
+        // goal from the loop entirely. It is a supported engine setting; the
+        // jar is untouched.
+        settings.buildIgnoreExisting.value = true;
 
         // Accept placement orientation, exactly the way the engine compares
         // "already built". The state a player produces by clicking a block

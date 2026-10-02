@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -31,6 +32,17 @@ class MovementWatchdogTest {
     private static final int LIMIT = 10;
     private static final int COOLDOWN = 3;
 
+    /**
+     * How long a recovery is given to prove itself.
+     *
+     * <p>Short here for speed; the production default is
+     * {@link MovementWatchdog#DEFAULT_VERIFY_TICKS}.
+     */
+    private static final int VERIFY = 5;
+
+    /** The watchdog under test, so the new tests can drive it directly. */
+    private MovementWatchdog watchdog;
+
     /** Engine double that records exactly what the watchdog asked of it. */
     private static final class FakeEngine implements MovementWatchdog.Engine {
 
@@ -40,6 +52,18 @@ class MovementWatchdogTest {
         boolean pathing;
         boolean repathAvailable = true;
         String goal = "GoalBlock";
+
+        /**
+         * Goal identity, deliberately separate from {@link #goal}.
+         *
+         * <p>Modelled that way because that is exactly the distinction the live
+         * log exposed: the goal <i>class</i> stayed {@code JankyGoalComposite}
+         * through every recovery while the build was frozen, so a class name is
+         * not a usable progress signal on its own.
+         */
+        String goalIdentity = "GoalBlock@10,64,10";
+
+        String destination = "none";
         int repaths;
 
         @Override
@@ -60,6 +84,16 @@ class MovementWatchdogTest {
         @Override
         public String goal() {
             return this.goal;
+        }
+
+        @Override
+        public String goalIdentity() {
+            return this.goalIdentity;
+        }
+
+        @Override
+        public String pathDestination() {
+            return this.destination;
         }
 
         @Override
@@ -107,9 +141,30 @@ class MovementWatchdogTest {
     private MovementWatchdog watchdog() {
         MovementWatchdog watchdog = new MovementWatchdog(
                 this.engine, this.world, () -> this.supplyPending, this.log::add,
-                LIMIT, COOLDOWN);
+                LIMIT, COOLDOWN, VERIFY);
         watchdog.begin();
         return watchdog;
+    }
+
+    /**
+     * Drives a genuine stall until the watchdog reports a non-NONE outcome,
+     * giving it enough ticks to get past both the stall window and the
+     * post-recovery verification window.
+     */
+    private MovementWatchdog.Outcome stallUntilReported(int maxTicks) {
+        MovementWatchdog.Outcome outcome = MovementWatchdog.Outcome.NONE;
+
+        for (int i = 0; i < maxTicks; i++) {
+            outcome = this.watchdog.tick();
+
+            if (outcome == MovementWatchdog.Outcome.REPATH_STARTED) {
+                continue;
+            }
+            if (outcome != MovementWatchdog.Outcome.NONE) {
+                return outcome;
+            }
+        }
+        return outcome;
     }
 
     // --- 1. Normal stationary building must NOT trigger recovery. ---
@@ -201,15 +256,67 @@ class MovementWatchdogTest {
 
     @Test
     void aGenuineProlongedStationaryNoProgressStateTriggersRecovery() {
-        MovementWatchdog watchdog = watchdog();
+        this.watchdog = watchdog();
 
         // The live failure exactly: running, not paused, blocks outstanding,
         // player frozen on one block, no placement, engine not pathing.
-        MovementWatchdog.Outcome outcome = tickUntil(watchdog, LIMIT + 5);
+        //
+        // The outcome on the stall tick is REPATH_STARTED, never RECOVERED:
+        // nothing is proven at that point. This is the distinction the previous
+        // version got wrong, and why a live log claimed three successful
+        // recoveries on a build that never moved.
+        MovementWatchdog.Outcome outcome = tickUntil(this.watchdog, LIMIT + 5);
 
-        assertEquals(MovementWatchdog.Outcome.RECOVERED, outcome,
-                "a real stall must be recovered");
+        assertEquals(MovementWatchdog.Outcome.REPATH_STARTED, outcome,
+                "a re-plan must be requested, but must not be reported as a success yet");
         assertEquals(1, this.engine.repaths, "recovery must ask the engine to re-plan once");
+    }
+
+    @Test
+    void aRepathThatChangesNothingIsNeverReportedAsRecovered() {
+        this.watchdog = watchdog();
+
+        MovementWatchdog.Outcome outcome = stallUntilReported(LIMIT * 6);
+
+        // The engine handed back the identical target and nothing was placed or
+        // moved, so there is no success to report - only a failed attempt that
+        // must consume the bounded budget.
+        assertNotEquals(MovementWatchdog.Outcome.RECOVERED, outcome,
+                "an unchanged goal must never be reported as a successful recovery");
+        assertTrue(everythingLogged().contains("produced no change"),
+                "the failed attempt must be recorded, not silently dropped");
+    }
+
+    @Test
+    void aRepathIsVerifiedWhenTheEngineActuallyRetargets() {
+        this.watchdog = watchdog();
+
+        assertEquals(MovementWatchdog.Outcome.REPATH_STARTED,
+                tickUntil(this.watchdog, LIMIT + 5), "precondition: a re-plan is requested");
+
+        // The engine now picks a genuinely different target, exactly as it would
+        // if it had re-derived its goal from the player's current position.
+        this.engine.goalIdentity = "GoalBlock@12,65,10";
+        this.engine.destination = "(12,65,10)";
+
+        assertEquals(MovementWatchdog.Outcome.RECOVERED, this.watchdog.tick(),
+                "a genuinely new goal must be recognised as a verified recovery");
+        assertTrue(everythingLogged().contains("chose a new target"),
+                "the new goal must be named in the log");
+    }
+
+    @Test
+    void aRepathIsVerifiedWhenThePlayerActuallyMoves() {
+        this.watchdog = watchdog();
+
+        tickUntil(this.watchdog, LIMIT + 5);
+        this.engine.pausedForRepath = false;
+
+        this.world.position = new PlayerPosition(11, 64, 10);
+
+        assertEquals(MovementWatchdog.Outcome.RECOVERED, this.watchdog.tick(),
+                "movement after a re-plan is a verified recovery");
+        assertTrue(everythingLogged().contains("the player moved"));
     }
 
     @Test
@@ -235,14 +342,17 @@ class MovementWatchdogTest {
     void recoveryIsLoggedWithTheDiagnosticDetail() {
         MovementWatchdog watchdog = watchdog();
         tickUntil(watchdog, LIMIT + 5);
+        // One more tick, so the re-plan's release is logged too.
+        watchdog.tick();
 
         String all = everythingLogged();
         assertTrue(all.contains("active=true"), all);
         assertTrue(all.contains("paused=false"), all);
         assertTrue(all.contains("remaining=50"), all);
         assertTrue(all.contains("goal=GoalBlock"), all);
-        assertTrue(all.contains("attempting safe repath"), all);
-        assertTrue(all.contains("repath requested"), all);
+        assertTrue(all.contains("BUILD STALLED"), all);
+        assertTrue(all.contains("attempting re-plan"), all);
+        assertTrue(all.contains("re-plan released"), all);
     }
 
     // --- 6 & 7. Recovery never moves the player. ---
@@ -400,7 +510,7 @@ class MovementWatchdogTest {
         assertEquals(MovementWatchdog.Outcome.LIMITATION, outcome,
                 "with no safe recovery the watchdog must report the limitation");
         assertEquals(0, this.engine.repaths);
-        assertTrue(everythingLogged().contains("declined the repath"),
+        assertTrue(everythingLogged().contains("declined the re-plan"),
                 "the limitation must be logged, not silently swallowed");
     }
 
@@ -426,6 +536,16 @@ class MovementWatchdogTest {
                     @Override
                     public String goal() {
                         return "GoalBlock";
+                    }
+
+                    @Override
+                    public String goalIdentity() {
+                        return "GoalBlock@10,64,10";
+                    }
+
+                    @Override
+                    public String pathDestination() {
+                        return "none";
                     }
 
                     @Override
@@ -493,6 +613,132 @@ class MovementWatchdogTest {
         // The counter is reported as "n/limit" and must be climbing towards the
         // threshold - that rising number is what identifies a stall in the log.
         assertTrue(summary.matches(".*stationaryTicks=[1-9]/" + LIMIT + ".*"), summary);
+    }
+
+    // --- 4. Goal/path signals must count as progress, not as a stall. ---
+
+    @Test
+    void aStationaryPlayerWithAChangingGoalIsNotAStall() {
+        // The engine can genuinely re-plan while the player stands still.
+        // Counting that as a stall is a false positive the old position-only
+        // check could produce.
+        this.watchdog = watchdog();
+
+        MovementWatchdog.Outcome outcome = MovementWatchdog.Outcome.NONE;
+
+        for (int i = 0; i < LIMIT * 3; i++) {
+            this.engine.goalIdentity = "GoalBlock@" + (10 + i) + ",64,10";
+            outcome = this.watchdog.tick();
+
+            assertEquals(MovementWatchdog.Outcome.NONE, outcome,
+                    "a moving goal means the engine is working, not stalled (tick " + i + ")");
+        }
+
+        assertEquals(0, this.engine.repaths, "re-targeting is progress, never a stall");
+    }
+
+    @Test
+    void aStationaryPlayerWithAChangingPathDestinationIsNotAStall() {
+        this.watchdog = watchdog();
+
+        MovementWatchdog.Outcome outcome = MovementWatchdog.Outcome.NONE;
+
+        for (int i = 0; i < LIMIT * 3; i++) {
+            this.engine.destination = "(" + (10 + i) + ",64,10)";
+            outcome = this.watchdog.tick();
+        }
+
+        assertEquals(MovementWatchdog.Outcome.NONE, outcome,
+                "a changing path destination is real progress while standing still");
+        assertEquals(0, this.engine.repaths);
+    }
+
+    @Test
+    void unavailableStateIsNotCountedAsAStall() {
+        // A null position or unreadable count is missing evidence, not evidence
+        // of a stall. Counting it would fire spurious recoveries.
+        this.watchdog = watchdog();
+        this.world.position = null;
+
+        MovementWatchdog.Outcome outcome = MovementWatchdog.Outcome.NONE;
+
+        for (int i = 0; i < LIMIT * 3; i++) {
+            outcome = this.watchdog.tick();
+        }
+
+        assertEquals(MovementWatchdog.Outcome.NONE, outcome);
+        assertEquals(0, this.watchdog.stationaryTicks(),
+                "an unreadable position must not accumulate stall ticks");
+        assertEquals(0, this.engine.repaths);
+    }
+
+    // --- 2. The diagnostics a live stall actually needs. ---
+
+    @Test
+    void stallDiagnosticsNameTheTargetAndNotJustTheGoalClass() {
+        this.watchdog = watchdog();
+
+        for (int i = 0; i < 100; i++) {
+            this.watchdog.tick();
+        }
+
+        String log = everythingLogged();
+
+        assertTrue(log.contains("stationary"), "the stall must be announced: " + log);
+        assertTrue(log.contains("remaining=50"), "must name what is outstanding: " + log);
+        assertTrue(log.contains("goalIdentity=GoalBlock@10,64,10"),
+                "must name the actual target, not just the goal class: " + log);
+        assertTrue(log.contains("pathDestination=none"),
+                "must report whether a path exists: " + log);
+        assertTrue(log.contains("active=true") && log.contains("paused=false"),
+                "must report the engine's own state: " + log);
+    }
+
+    @Test
+    void stallDiagnosticsAreNotLoggedEveryTick() {
+        this.watchdog = watchdog();
+
+        for (int i = 0; i < LIMIT * 4; i++) {
+            this.watchdog.tick();
+        }
+
+        long stationaryLines = this.log.stream().filter(line -> line.contains("stationary ")).count();
+
+        // A few milestones, not one per tick. The live log's 2,367 re-plans were
+        // largely this same mistake repeated every tick.
+        assertTrue(stationaryLines <= 4,
+                "stationary notes must be milestone-only, not per tick, but got " + stationaryLines);
+    }
+
+    // --- 6. Recovery continues the build; it never restarts it. ---
+
+    @Test
+    void theBuildRemainsActiveThroughoutRecovery() {
+        this.watchdog = watchdog();
+        stallUntilReported(LIMIT * 6);
+
+        assertTrue(this.engine.running,
+                "recovery must never end the build - it is a recovery, not a restart");
+        assertTrue(this.watchdog.isWatching(),
+                "the watchdog must still be watching the same build");
+    }
+
+    @Test
+    void anUnchangedGoalExhaustsTheBudgetAndThenGivesUp() {
+        this.watchdog = watchdog();
+
+        // Nothing ever changes: the engine keeps re-deriving the same target.
+        MovementWatchdog.Outcome outcome = MovementWatchdog.Outcome.NONE;
+
+        for (int i = 0; i < LIMIT * 40 && outcome != MovementWatchdog.Outcome.LIMITATION; i++) {
+            outcome = this.watchdog.tick();
+        }
+
+        assertEquals(MovementWatchdog.Outcome.LIMITATION, outcome,
+                "a build that never advances must end in a bounded, reported give-up");
+        assertEquals(MovementWatchdog.MAX_RECOVERIES, this.watchdog.recoveries(),
+                "the recovery budget must be spent exactly once each");
+        assertTrue(this.engine.running, "giving up must not destroy the build");
     }
 }
 

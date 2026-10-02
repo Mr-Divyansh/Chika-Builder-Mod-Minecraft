@@ -65,15 +65,27 @@ public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
             throw new SchematicAnalysisException("schematic is too large to build");
         }
 
-        List<MaterialNeed> needs = countBlocks(parsed);
+        List<MaterialNeed> needs = countBlocks(parsed, schematic);
 
         // Subtracts the blocks that are already correct in the world, so a
         // resumed build only asks for what is genuinely still missing.
         return ExistingBlockChecker.apply(needs, parsed, origin);
     }
 
+    /**
+     * The file whose material tally was last logged, so the breakdown is printed
+     * once per file instead of on every analysis.
+     *
+     * <p>A live log recorded 14,202 "Material resolved" lines in two minutes,
+     * because {@link dev.chika.builder.build.BuildCoordinator#outstandingBlocks()}
+     * re-analyses the schematic on a timer and each pass logged the whole
+     * tally. The tally is a property of the file, not of the moment, so
+     * repeating it every pass is pure noise that buries the real diagnostics.
+     */
+    private static volatile String lastLoggedTally;
+
     /** Walks every cell and tallies the non-air, placeable blocks. */
-    private static List<MaterialNeed> countBlocks(IStaticSchematic schematic)
+    private static List<MaterialNeed> countBlocks(IStaticSchematic schematic, File source)
             throws SchematicAnalysisException {
 
         // LinkedHashMap keeps a stable order so reports read the same each run.
@@ -103,14 +115,22 @@ public final class ChikaSchematicAnalyzer implements SchematicAnalyzer {
             }
         }
 
-        LOGGER.info("[Chika Builder] Schematic materials: {} distinct type(s) from a {}x{}x{} "
-                        + "schematic, {} cell(s) with no item form (never placeable).",
-                counts.size(), schematic.widthX(), schematic.heightY(), schematic.lengthZ(),
-                cellsWithNoItem);
+        // The tally describes the file, not the moment, so it is logged once per
+        // file. Repeating it on every analysis buried the stall diagnostics.
+        String tallyKey = source.getAbsolutePath() + "@" + source.lastModified();
 
-        for (ItemAmount amount : counts.values()) {
-            LOGGER.info("[Chika Builder] Material resolved: minecraftItemId={} name={} count={}",
-                    amount.itemId(), amount.displayName(), amount.amount());
+        if (!tallyKey.equals(lastLoggedTally)) {
+            lastLoggedTally = tallyKey;
+
+            LOGGER.info("[Chika Builder] Schematic materials: {} distinct type(s) from a {}x{}x{} "
+                            + "schematic, {} cell(s) with no item form (never placeable).",
+                    counts.size(), schematic.widthX(), schematic.heightY(), schematic.lengthZ(),
+                    cellsWithNoItem);
+
+            for (ItemAmount amount : counts.values()) {
+                LOGGER.info("[Chika Builder] Material resolved: minecraftItemId={} name={} count={}",
+                        amount.itemId(), amount.displayName(), amount.amount());
+            }
         }
 
         List<MaterialNeed> needs = new ArrayList<>(counts.size());

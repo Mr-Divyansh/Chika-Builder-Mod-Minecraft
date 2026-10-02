@@ -38,6 +38,15 @@ public final class BuildCoordinator {
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger("Chika Builder");
 
+    /**
+     * How many ticks a cached outstanding count stays valid.
+     *
+     * <p>20 ticks is one second at 20 TPS. Long enough to stop the per-tick
+     * re-parse storm seen in the live log, short enough that any real
+     * placement is picked up almost immediately.
+     */
+    static final int OUTSTANDING_REFRESH_TICKS = 20;
+
     private final BuildService buildService;
     private final SchematicAnalyzer analyzer;
     private final PlayerContext player;
@@ -48,6 +57,14 @@ public final class BuildCoordinator {
     /** The build currently handed to the engine, so a pause can be recovered. */
     private File activeSchematic;
     private BuildService.Origin activeOrigin;
+
+    /**
+     * Memoised outstanding count; {@code -1} means "not computed yet".
+     *
+     * @see #outstandingBlocks()
+     */
+    private int cachedOutstanding = -1;
+    private int outstandingAge;
 
     /** The most recent Creative hand-over, for player-facing reporting. */
     private CreativeReport lastCreativeReport = CreativeReport.nothingToDo();
@@ -372,11 +389,45 @@ public final class BuildCoordinator {
      *
      * @return the outstanding count, or {@code -1} when it cannot be determined
      */
+    /**
+     * The current build's outstanding count, recomputed at most every
+     * {@value #OUTSTANDING_REFRESH_TICKS} ticks.
+     *
+     * <p><b>Why this is cached.</b> A live log showed 2,367 full schematic
+     * re-analyses (16,569 log lines) in about two minutes, because the movement
+     * watchdog asks for the remaining count on every client tick and each ask
+     * re-read the file, re-walked all 11x7x12 cells and logged seven lines.
+     * That is pure overhead on the render thread, and it made the very stall it
+     * was meant to measure worse. One second of staleness is irrelevant for a
+     * decision that needs a ten-second window.
+     *
+     * <p>{@link #invalidateOutstanding()} forces the next call to recompute, so
+     * a supply round or a placement check still sees fresh truth.
+     */
     public int outstandingBlocks() {
         if (this.activeSchematic == null || this.activeOrigin == null) {
             return 0;
         }
 
+        if (this.cachedOutstanding >= 0 && this.outstandingAge < OUTSTANDING_REFRESH_TICKS) {
+            this.outstandingAge++;
+            return this.cachedOutstanding;
+        }
+
+        int computed = computeOutstanding();
+
+        this.cachedOutstanding = computed;
+        this.outstandingAge = 0;
+        return computed;
+    }
+
+    /** Drops the cached outstanding count so the next read recomputes it. */
+    public void invalidateOutstanding() {
+        this.cachedOutstanding = -1;
+        this.outstandingAge = 0;
+    }
+
+    private int computeOutstanding() {
         try {
             List<MaterialNeed> required = this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
             int outstanding = 0;
@@ -419,6 +470,7 @@ public final class BuildCoordinator {
         this.activeSchematic = null;
         this.activeOrigin = null;
         this.lastCreativeReport = null;
+        invalidateOutstanding();
     }
 
     /** Starts (or resumes) the build through the backend. */
@@ -439,6 +491,8 @@ public final class BuildCoordinator {
         // the world, so a resume never rebuilds finished work.
         this.activeSchematic = schematic;
         this.activeOrigin = origin;
+        // A new build invalidates any count carried over from the previous one.
+        invalidateOutstanding();
 
         String summary = "Building '" + schematic.getName() + "' from " + origin + ".";
         if (!creativeReport.granted().isEmpty()) {

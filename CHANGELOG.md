@@ -4,6 +4,72 @@ All notable changes to Chika Builder.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are tagged with the mod version in `gradle.properties`.
 
+## [1.1.2] — The movement freeze: real root cause, verified against a live log
+
+### Fixed
+
+- **The build no longer freezes on `buildIgnoreExisting = false`.** The previous
+  report blamed a "stale path" and shipped a pause/resume watchdog. A live log
+  from the reported failure (FastClient profile `26-1-2`, 16:28–16:30) proves
+  that diagnosis was wrong, and shows the real cause:
+
+  ```
+  16:28:57  goal=JankyGoalComposite remaining=52
+            lastMovementTick=686 lastProgressTick=662
+  16:29:07  goal=JankyGoalComposite remaining=52
+            lastMovementTick=686 lastProgressTick=662
+  16:29:17  goal=JankyGoalComposite remaining=52
+            lastMovementTick=686 lastProgressTick=662
+  ```
+
+  The watchdog *did* fire, three times, and nothing ever changed — not the
+  player position, not the block count, not the goal.
+
+  Reading `BuilderProcess.onTick`'s bytecode gives the actual mechanism. With
+  `buildIgnoreExisting = false`, a schematic cell whose world block is non-air
+  but does not match is **not** skipped: the engine builds a `GoalBreak` for it
+  and wraps it with the placement goal in a `JankyGoalComposite` (the two
+  `new JankyGoalComposite` sites in `onTick`), then tries to **mine** that
+  block. If the player cannot reach or break it, the engine re-derives the
+  identical goal every tick, never places anything and never pauses — while
+  `isActive()` stays `true` because it is just `schematic != null`. The build
+  looks alive and does nothing. Now set to **`true`**, a supported engine
+  setting, so existing blocks are left alone and no mining goal is emitted.
+
+- **A recovery is no longer reported as successful unless it was.** The old code
+  returned "recovered" the instant the engine accepted the pause, which is why
+  the live log printed *"progress resumed after repath"* three times on a build
+  that never moved. There is now a distinct `REPATH_STARTED` outcome and a
+  verification window: success requires the player to have moved, a block to
+  have been placed, or the engine to have genuinely re-targeted. An unchanged
+  goal is recorded as a **failed** attempt and consumes the bounded budget.
+  Chat stays silent until a recovery is actually verified.
+
+- **The engine's goal class name is no longer treated as a progress signal.**
+  `JankyGoalComposite` was identical on every one of the three failed
+  recoveries, so it could never distinguish "re-planned" from "handed back the
+  same target". Diagnostics now also read the goal's `toString()` and the
+  current path's destination, both of which embed the actual target.
+
+- **2,367 redundant schematic re-analyses per two minutes are gone.** The live
+  log contained 16,569 lines of `Schematic materials` / `Material resolved`
+  output: the watchdog read the remaining-block count every client tick and each
+  read re-parsed the file and logged seven lines. The count is now cached for
+  one second (`BuildCoordinator.OUTSTANDING_REFRESH_TICKS`) with an explicit
+  `invalidateOutstanding()`, and the material tally is logged once per file
+  instead of once per analysis.
+
+- **Fabric no longer warns about invalid mod json entries.** `description_marker`
+  is not a supported root entry (`Unsupported root entry "description_marker"`
+  appeared on every launch) and has been removed.
+
+### Known limitation
+
+- The live test that proved the previous fix wrong has **not** been repeated
+  against this build. The root cause is established from that log plus the
+  engine bytecode, and the regression tests cover it, but runtime behaviour
+  still needs one confirmation in Minecraft.
+
 ## [1.1.2] — Movement stall recovery, and the HUD watermark is gone
 
 ### Fixed
