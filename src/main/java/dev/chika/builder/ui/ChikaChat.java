@@ -1,5 +1,6 @@
 package dev.chika.builder.ui;
 
+import dev.chika.builder.Branding;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -25,6 +26,15 @@ public final class ChikaChat {
     /** Minecraft's pink, i.e. what {@code §d} means. */
     public static final ChatFormatting PREFIX_COLOR = ChatFormatting.LIGHT_PURPLE;
 
+    /**
+     * The colour of the message body.
+     *
+     * <p>Only the prefix carries the brand colour; the text itself is plain
+     * white so a wall of pink is unreadable and the branding stays a single
+     * recognisable element.
+     */
+    public static final ChatFormatting BODY_COLOR = ChatFormatting.WHITE;
+
     private ChikaChat() {
     }
 
@@ -36,8 +46,43 @@ public final class ChikaChat {
     /** A full message: pink prefix followed by {@code text}. */
     public static MutableComponent message(String text) {
         MutableComponent line = prefix();
-        line.append(Component.literal(text == null ? "" : text));
+        line.append(body(text));
         return line;
+    }
+
+    /** The white message body, as its own component. */
+    public static MutableComponent body(String text) {
+        return Component.literal(text == null ? "" : text).withStyle(BODY_COLOR);
+    }
+
+    /**
+     * A white, clickable link - underlined, because it is a link.
+     *
+     * @param text the visible label
+     * @param url  the destination; must be one of this project's own URLs
+     */
+    public static MutableComponent link(String text, String url) {
+        return Component.literal(text).withStyle(style -> style
+                .withColor(BODY_COLOR)
+                .withUnderlined(true)
+                .withClickEvent(openUrl(url)));
+    }
+
+    /**
+     * The game's own open-URL click event.
+     *
+     * <p>{@code ClickEvent.OpenUrl} takes a {@link java.net.URI} in this
+     * version, and a malformed address must not take the message down with it.
+     */
+    private static net.minecraft.network.chat.ClickEvent openUrl(String url) {
+        try {
+            return new net.minecraft.network.chat.ClickEvent.OpenUrl(
+                    java.net.URI.create(url));
+        } catch (Throwable t) {
+            // A link we cannot build is not worth losing the message over.
+            return new net.minecraft.network.chat.ClickEvent.OpenUrl(
+                    java.net.URI.create(Branding.REPOSITORY_URL));
+        }
     }
 
     /**

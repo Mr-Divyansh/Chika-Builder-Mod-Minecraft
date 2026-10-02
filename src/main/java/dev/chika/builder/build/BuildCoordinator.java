@@ -248,13 +248,20 @@ public final class BuildCoordinator {
         }
     }
 
-    /** One {@code "Name xN"} line per material whose shortfall is still positive. */
+    /**
+     * One {@code "Name xN"} line per material the build still does not have.
+     *
+     * <p>Satisfaction, not a raw count: with Creative a material the player
+     * holds any of is satisfied, so it is not listed as missing. Only materials
+     * that no rung has covered yet are reported, which is exactly what the
+     * engine is still unable to place.
+     */
     private static List<String> shortfallLines(MaterialPlan plan) {
         List<String> lines = new ArrayList<>();
 
         for (MaterialNeed need : plan.needs()) {
-            if (need.shortfall() > 0) {
-                lines.add(need.item().displayName() + " x" + need.shortfall());
+            if (!need.isSatisfied() && need.outstanding() > 0) {
+                lines.add(need.item().displayName() + " x" + need.outstanding());
             }
         }
 

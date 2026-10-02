@@ -89,6 +89,12 @@ class CreativeAcquisitionTest {
                 MaterialResolution.CREATIVE);
     }
 
+    /** A Creative-routed need for any item. */
+    private static MaterialNeed creativeNeed(String id, String label, int required) {
+        return new MaterialNeed(new ItemAmount(id, label, required), required, 0, 0,
+                MaterialResolution.CREATIVE);
+    }
+
     private static CreativeAcquisition acquisition(CreativeSupplier supplier,
                                                    CreativeAcquisition.InventoryCounter inv) {
         return new CreativeAcquisition(supplier, inv);
@@ -169,20 +175,48 @@ class CreativeAcquisitionTest {
         assertEquals(0, inventory.countOf(STONE));
     }
 
+    /**
+     * A hand-over that fills less than the whole total is still a success.
+     *
+     * <p>This test used to demand that a partial count pause the build. That
+     * rule was the live bug: the build engine only ever asks whether a block is
+     * <i>present</i> in the player's storage slots (it scans the 36 slots to
+     * build its placeable list, and in Creative placing does not consume the
+     * stack), so 64 stone is genuinely enough for a 248-stone wall, and
+     * insisting on all 248 made a schematic unsatisfiable once the inventory
+     * had to share its slots between material types.
+     */
     @Test
-    void aPartialHandoverIsReportedWithTheExactNumbers() {
+    void aPartialCountStillCountsBecauseOnlyPresenceIsNeeded() {
         FakeInventory inventory = new FakeInventory();
         FakeSupplier supplier = new FakeSupplier(inventory, true, 64, true);
 
         CreativeReport report = acquisition(supplier, inventory)
                 .acquire(plan(creativeNeed(248, 0, 0)));
 
-        assertFalse(report.canContinue());
-        assertEquals(64, inventory.countOf(STONE));
+        assertTrue(report.canContinue(),
+                "the block is in the inventory, so the build may start");
+        assertEquals(64, inventory.countOf(STONE), "the inventory is the source of truth");
         assertEquals(1, report.granted().size());
-        assertEquals(64, report.granted().get(0).acquired());
-        assertEquals(248, report.granted().get(0).requested());
-        assertEquals(List.of("Stone x248 - Only 64 of 248 fitted in the inventory."),
+        assertEquals(64, report.granted().get(0).acquired(), "the real amount is reported");
+        assertEquals(248, report.granted().get(0).requested(), "the full need is still reported");
+        assertTrue(report.failures().isEmpty(),
+                "a present block is not a failure: " + report.describeFailures());
+    }
+
+    @Test
+    void nothingPresentIsStillAFailure() {
+        FakeInventory inventory = new FakeInventory();
+
+        // Available, but the inventory has no room at all: nothing arrives.
+        FakeSupplier supplier = new FakeSupplier(inventory, true, 0, true);
+
+        CreativeReport report = acquisition(supplier, inventory)
+                .acquire(plan(creativeNeed(248, 0, 0)));
+
+        assertFalse(report.canContinue());
+        assertEquals(0, inventory.countOf(STONE));
+        assertEquals(List.of("Stone x248 - Creative did not supply these blocks."),
                 report.describeFailures());
     }
 
@@ -196,5 +230,128 @@ class CreativeAcquisitionTest {
 
         assertEquals(List.of("Stone x248 - Creative did not supply these blocks."),
                 report.describeFailures());
+    }
+
+    // ------------------------------------------------------------------
+    // The live condition: 36 storage slots shared between material types.
+    // ------------------------------------------------------------------
+
+    @Test
+    void anEmptyInventoryIsFilledOneStackPerMaterialType() {
+        FakeInventory inventory = new FakeInventory();
+        FakeSupplier supplier = new FakeSupplier(inventory, true, Integer.MAX_VALUE, true);
+
+        CreativeReport report = acquisition(supplier, inventory).acquire(plan(
+                creativeNeed(248, 0, 0),
+                creativeNeed("minecraft:oak_planks", "Oak Planks", 96),
+                creativeNeed("minecraft:cobblestone", "Cobblestone", 12)));
+
+        assertTrue(report.canContinue());
+        assertEquals(3, report.granted().size(), "every type is handed over");
+        assertTrue(inventory.countOf(STONE) > 0, "the engine only needs presence");
+        assertTrue(inventory.countOf("minecraft:oak_planks") > 0);
+        assertTrue(inventory.countOf("minecraft:cobblestone") > 0);
+    }
+
+    @Test
+    void aPartiallyOccupiedInventoryStillGetsWhatIsMissing() {
+        FakeInventory inventory = new FakeInventory().put("minecraft:dirt", 64);
+        FakeSupplier supplier = new FakeSupplier(inventory, true, Integer.MAX_VALUE, true);
+
+        CreativeReport report = acquisition(supplier, inventory).acquire(plan(
+                creativeNeed("minecraft:dirt", "Dirt", 32),
+                creativeNeed("minecraft:oak_planks", "Oak Planks", 64)));
+
+        assertTrue(report.canContinue());
+        assertTrue(inventory.countOf("minecraft:oak_planks") > 0,
+                "a free slot must still be used for the missing material");
+    }
+
+    @Test
+    void anAlmostFullInventoryFailsHonestlyInsteadOfOverwriting() {
+        FakeInventory inventory = new FakeInventory();
+
+        // The player is carrying 248 stone: their items must survive the round.
+        inventory.put(STONE, 248);
+
+        // No room at all: the supplier can never deliver anything.
+        FakeSupplier supplier = new FakeSupplier(inventory, true, 0, true);
+
+        CreativeReport report = acquisition(supplier, inventory)
+                .acquire(plan(creativeNeed("minecraft:oak_planks", "Oak Planks", 64)));
+
+        assertFalse(report.canContinue());
+        assertEquals(248, inventory.countOf(STONE),
+                "the player's existing items are never touched to make space");
+        assertEquals(List.of("Oak Planks x64 - Creative did not supply these blocks."),
+                report.describeFailures());
+    }
+
+    @Test
+    void oneUnobtainableTypeBlocksTheWholeRound() {
+        FakeInventory inventory = new FakeInventory();
+        FakeSupplier supplier = new FakeSupplier(inventory, true, Integer.MAX_VALUE, true);
+
+        // Delivers everything except cobblestone.
+        CreativeSupplier halfBlocked = new CreativeSupplier() {
+            @Override
+            public boolean isAvailable() {
+                return true;
+            }
+
+            @Override
+            public int grant(String itemId, int amount) {
+                if (itemId.equals("minecraft:cobblestone")) {
+                    return 0;
+                }
+                return supplier.grant(itemId, amount);
+            }
+
+            @Override
+            public String describe() {
+                return "half-blocked";
+            }
+        };
+
+        CreativeReport report = acquisition(halfBlocked, inventory).acquire(plan(
+                creativeNeed(248, 0, 0),
+                creativeNeed("minecraft:cobblestone", "Cobblestone", 64)));
+
+        assertFalse(report.canContinue(),
+                "a round is only good when every routed material is present");
+        assertEquals(1, report.granted().size(), "stone was delivered");
+        assertEquals(1, report.failures().size(), "cobblestone was not");
+    }
+
+    @Test
+    void theInventoryAloneDecidesSuccess() {
+        FakeInventory inventory = new FakeInventory();
+
+        // Claims the full amount for every id while the inventory never moves.
+        CreativeSupplier liar = new CreativeSupplier() {
+            @Override
+            public boolean isAvailable() {
+                return true;
+            }
+
+            @Override
+            public int grant(String itemId, int amount) {
+                return amount;
+            }
+
+            @Override
+            public String describe() {
+                return "liar";
+            }
+        };
+
+        CreativeReport report = acquisition(liar, inventory).acquire(plan(
+                creativeNeed(248, 0, 0),
+                creativeNeed("minecraft:oak_planks", "Oak Planks", 64)));
+
+        assertFalse(report.canContinue(), "claims are never believed");
+        assertEquals(0, inventory.countOf(STONE));
+        assertEquals(0, inventory.countOf("minecraft:oak_planks"));
+        assertEquals(2, report.failures().size());
     }
 }

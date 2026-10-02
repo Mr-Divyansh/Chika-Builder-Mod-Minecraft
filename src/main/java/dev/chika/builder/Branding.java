@@ -34,6 +34,24 @@ public final class Branding {
     /** Translation keys (see assets/chika-builder/lang/en_us.json). */
     public static final String LANG_ROOT = "chika_builder";
 
+    /**
+     * The project's own GitHub repository, taken from the {@code origin} remote
+     * of this repository ({@code git remote -v} →
+     * {@code https://github.com/Mr-Divyansh/Chika-Builder-Mod-Minecraft.git}).
+     *
+     * <p>Player-facing help and issue links must point here. The bundled build
+     * engine has its own upstream project and its own issue tracker; that
+     * address must never be shown to a Chika Builder player.
+     */
+    public static final String REPOSITORY_URL =
+            "https://github.com/Mr-Divyansh/Chika-Builder-Mod-Minecraft";
+
+    /** Where a player reports a problem with Chika Builder. */
+    public static final String ISSUES_URL = REPOSITORY_URL + "/issues";
+
+    /** The clickable label used for the issue link. */
+    public static final String REPORT_ISSUE_TEXT = "Report an issue";
+
     private Branding() {
     }
 }

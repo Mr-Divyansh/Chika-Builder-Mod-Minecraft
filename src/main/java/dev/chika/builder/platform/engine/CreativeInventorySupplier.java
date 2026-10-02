@@ -87,7 +87,6 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
             int before = MinecraftPlayerContext.countOf(minecraft.player, itemId);
 
             this.fill(minecraft, stack, itemId);
-            this.emptySlots(minecraft, itemId);
 
             int after = MinecraftPlayerContext.countOf(minecraft.player, itemId);
             return Math.max(0, after - before);
@@ -199,36 +198,16 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
     }
 
     /**
-     * Clears the menu's copy of the slots the server will not accept a Creative
-     * packet for, so the client view matches the server.
+     * Calls the vanilla Creative hand-over. No packet is built or sent by hand.
      *
-     * <p>The server only honours slot numbers 1..45, while {@code InventoryMenu}
-     * occupies 0-45 with the crafting result at index 0 and armour at 2-5. The
-     * game clears those slots for the same reason whenever the Creative menu
-     * opens, so this is a copy of existing behaviour rather than new behaviour.
+     * @param menuSlot the {@code InventoryMenu} slot number - what the server
+     *                 validates and what the vanilla Creative screen passes;
+     *                 never a raw {@code Inventory} container index
      */
-    private static void emptySlots(net.minecraft.client.Minecraft minecraft, String itemId) {
-        if (minecraft.player == null || minecraft.player.inventoryMenu == null) {
-            return;
-        }
-
-        InventoryMenu menu = minecraft.player.inventoryMenu;
-
-        for (int slot = 0; slot < menu.slots.size(); slot++) {
-            if (Inventories.isStorageMenuSlot(slot)) {
-                continue;
-            }
-
-            menu.getSlot(slot).set(ItemStack.EMPTY);
-            addToCreative(minecraft, ItemStack.EMPTY, slot);
-        }
-    }
-
-    /** Calls the vanilla Creative hand-over. No packet is built or sent by hand. */
     private static void addToCreative(net.minecraft.client.Minecraft minecraft,
-                                      ItemStack stack, int slot) {
+                                      ItemStack stack, int menuSlot) {
         if (minecraft.gameMode != null) {
-            minecraft.gameMode.handleCreativeModeItemAdd(stack, slot);
+            minecraft.gameMode.handleCreativeModeItemAdd(stack, menuSlot);
         }
     }
 

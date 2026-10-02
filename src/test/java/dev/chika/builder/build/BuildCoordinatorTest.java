@@ -182,6 +182,7 @@ class BuildCoordinatorTest {
         private final boolean available;
         private int capPerGrant;
         private final List<String> requests = new ArrayList<>();
+        private final List<String> blocked = new ArrayList<>();
 
         StubCreative(StubPlayer player, boolean available) {
             this(player, available, Integer.MAX_VALUE);
@@ -206,6 +207,18 @@ class BuildCoordinatorTest {
             return this;
         }
 
+        /** Simulates an item the inventory has no room for at all. */
+        StubCreative rejects(String itemId) {
+            this.blocked.add(itemId);
+            return this;
+        }
+
+        /** Makes a previously blocked item obtainable again. */
+        StubCreative accepts(String itemId) {
+            this.blocked.remove(itemId);
+            return this;
+        }
+
         @Override
         public boolean isAvailable() {
             return this.available;
@@ -214,6 +227,11 @@ class BuildCoordinatorTest {
         @Override
         public int grant(String itemId, int amount) {
             this.requests.add(itemId + " x" + amount);
+
+            // Blocked means the inventory has no room for this item at all.
+            if (this.blocked.contains(itemId)) {
+                return 0;
+            }
 
             // The cap is inventory capacity, not a per-call limit: once the item
             // is at capacity nothing more fits, however many times the
@@ -413,12 +431,21 @@ class BuildCoordinatorTest {
                 String.join("\n", outcome.lines()));
     }
 
+    /**
+     * A partial <i>count</i> is enough; only a block that never arrives is fatal.
+     *
+     * <p>The engine needs at least one of each required block in the player's
+     * 36 storage slots and never consumes the stack in Creative, so a schematic
+     * must not be declared unsatisfiable just because 36 slots cannot hold every
+     * total at once - which is what stalled the live test at "57 block(s) still
+     * missing".
+     */
     @Test
-    void aPartialHandoverPausesAndReportsTheShortfall() {
+    void aPartialCountIsEnoughAndTheBuildStarts() {
         RecordingBuildService service = new RecordingBuildService();
         StubPlayer player = new StubPlayer().creative(true);
 
-        // Only 64 of the 248 blocks fit, so the build must not start yet.
+        // Only one stack of the 248 fits; presence is all the engine needs.
         StubCreative limited = new StubCreative(player, true, 64);
 
         BuildOutcome outcome = coordinator(service,
@@ -426,13 +453,29 @@ class BuildCoordinatorTest {
                 player, new StubSettings(true, false), null, limited)
                 .requestBuild(SCHEMATIC, ORIGIN);
 
+        assertTrue(outcome.isStarted());
+        assertEquals(1, service.started);
+        assertEquals(64, player.countItem("minecraft:stone"));
+    }
+
+    @Test
+    void aHandoverThatDeliversNothingPausesWithTheExactShortfall() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+
+        // Available, but the inventory is full of other things: nothing arrives.
+        StubCreative full = new StubCreative(player, true, 0);
+
+        BuildOutcome outcome = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, full)
+                .requestBuild(SCHEMATIC, ORIGIN);
+
         assertTrue(outcome.isPaused());
         assertEquals(0, service.started);
-        assertEquals(64, player.countItem("minecraft:stone"),
-                "the blocks that did arrive stay in the inventory");
+        assertEquals(0, player.countItem("minecraft:stone"), "no fake inventory");
 
         String report = String.join("\n", outcome.lines());
-        assertTrue(report.contains("Only 64 of 248"), report);
         assertTrue(report.contains("Stone x248"), report);
     }
 
@@ -653,14 +696,22 @@ class BuildCoordinatorTest {
         assertEquals(1, service.started, "a failed supply must not restart the build");
     }
 
+    /**
+     * Every material type must be satisfiable - one good type is not enough.
+     *
+     * <p>Planks arrive, dirt cannot (its slots are taken by other items), so
+     * the round delivers items and is still <b>not</b> satisfied: the build must
+     * stay paused rather than resume on a partial success. Once dirt can be
+     * handed over, the round is satisfied and the build may continue.
+     */
     @Test
     void everyMaterialTypeMustBeSatisfiedBeforeTheResultCountsAsSatisfied() {
         RecordingBuildService service = new RecordingBuildService();
         StubPlayer player = new StubPlayer().creative(true);
 
-        // The inventory can take at most 60 of any one item this round: dirt
-        // (needs 100) is capped, planks (needs 50) fit completely.
-        StubCreative creative = new StubCreative(player, true, 60);
+        // Planks fit; dirt has no room at all in this round.
+        StubCreative creative = new StubCreative(player, true);
+        creative.rejects("minecraft:dirt");
 
         BuildCoordinator underTest = coordinator(service, new StubAnalyzer(List.of(
                         need("minecraft:dirt", "Dirt", 100, 0, 0),
@@ -672,24 +723,24 @@ class BuildCoordinatorTest {
 
         player.set("minecraft:dirt", 0).set("minecraft:oak_planks", 0);
 
-        // Round 1: planks are complete, dirt is still 40 short.
+        // Round 1: planks arrive, dirt cannot be obtained.
         BuildSupervisor.SupplyResult first = underTest.supplyOutstanding();
 
-        assertEquals(110, first.delivered(), "60 dirt + 50 planks arrived");
+        assertEquals(50, first.delivered(), "the planks arrived");
         assertFalse(first.satisfied(),
-                "one material being complete is not enough - dirt is still missing");
-        assertEquals(60, player.countItem("minecraft:dirt"));
+                "one material being obtainable is not enough - dirt is still missing");
         assertEquals(50, player.countItem("minecraft:oak_planks"));
-        assertEquals(List.of("Dirt x40"), underTest.remainingShortfalls(),
-                "the report must name exactly what is still missing");
+        assertEquals(0, player.countItem("minecraft:dirt"));
+        assertEquals(List.of("Dirt x100"), underTest.remainingShortfalls(),
+                "the report must name exactly the material still missing");
 
-        // Round 2: capacity raised (room freed) -> only then is it satisfied.
-        creative.capacity(100);
+        // Round 2: dirt can now be handed over -> satisfied.
+        creative.accepts("minecraft:dirt");
         BuildSupervisor.SupplyResult second = underTest.supplyOutstanding();
 
-        assertEquals(40, second.delivered(), "the remaining dirt only");
+        assertTrue(second.delivered() > 0);
         assertTrue(second.satisfied(), "now every material is covered by the inventory");
-        assertEquals(100, player.countItem("minecraft:dirt"));
+        assertTrue(player.countItem("minecraft:dirt") > 0);
         assertTrue(underTest.remainingShortfalls().isEmpty());
         assertEquals(1, service.started, "supplying must not restart the build");
     }

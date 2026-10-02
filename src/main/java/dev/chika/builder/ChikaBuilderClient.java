@@ -227,30 +227,37 @@ public final class ChikaBuilderClient implements ClientModInitializer {
 
                 CreativeReport report = this.coordinator.lastCreativeReport();
                 boolean supplyIncomplete = report != null && !report.failures().isEmpty();
+                java.util.List<String> missing = this.coordinator.remainingShortfalls();
 
-                // Honest reporting only: every line here is backed by the live
-                // inventory re-plan, never by a delivery claim. While material
-                // remains, the build is reported as still paused - the player
-                // is never told a resume happened or will happen.
+                // Only what is true: the exact materials the inventory still
+                // lacks, read from a live re-plan, and whether the automatic
+                // supply is what failed. No resume is promised, because a resume
+                // only happens when supply actually completes.
                 if (supplyIncomplete) {
-                    ChikaChat.say("Creative supply incomplete.");
+                    ChikaChat.say("Creative supply could not complete the required materials.");
+                }
 
-                    for (String missing : this.coordinator.remainingShortfalls()) {
-                        ChikaChat.say("Missing: " + missing);
-                    }
-
-                    // The reasons (inventory full, source unavailable, ...) go
-                    // to the log so chat stays exactly as shown in the spec.
-                    for (String reason : report.describeFailures()) {
-                        LOGGER.info("[Chika Builder] {}", reason);
-                    }
+                for (String line : missing) {
+                    ChikaChat.say("Missing: " + line);
                 }
 
                 if (outstanding < 0) {
                     ChikaChat.say("Build paused - progress could not be verified.");
                 } else {
-                    ChikaChat.say("Build remains paused - " + outstanding
+                    ChikaChat.say("Build paused - " + outstanding
                             + " block(s) still missing.");
+                }
+
+                if (missing.isEmpty() && !supplyIncomplete) {
+                    ChikaChat.say("Run #chika_build again to try once more.");
+                }
+
+                // The reasons (inventory full, source unavailable, ...) go to
+                // the log so chat stays exactly as shown in the spec.
+                if (report != null) {
+                    for (String reason : report.describeFailures()) {
+                        LOGGER.info("[Chika Builder] {}", reason);
+                    }
                 }
 
                 this.finishActiveBuild();

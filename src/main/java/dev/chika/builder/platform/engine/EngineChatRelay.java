@@ -2,8 +2,10 @@ package dev.chika.builder.platform.engine;
 
 import baritone.api.BaritoneAPI;
 import baritone.api.Settings;
+import dev.chika.builder.Branding;
 import dev.chika.builder.ui.ChikaChat;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.function.Consumer;
 
@@ -139,14 +141,121 @@ public final class EngineChatRelay {
         return trimmed;
     }
 
-    /** Applies {@link #stripEngineTag(String)} to an engine component. */
+    /** Applies {@link #stripEngineTag(String)} then {@link #scrubUpstream(String)}. */
     static Component rebrand(Component component) {
         if (component == null) {
             return ChikaChat.message("");
         }
 
-        String stripped = stripEngineTag(component.getString());
+        String original = component.getString();
+        String text = scrubUpstream(stripEngineTag(original));
 
-        return ChikaChat.message(stripped);
+        MutableComponent line = ChikaChat.message(text);
+
+        // The engine's help/issue links point at its own project. Those are
+        // replaced in the text above, and the destination is re-attached here
+        // as our own clickable link, so a player who follows it lands on this
+        // project's issue tracker.
+        if (mentionsUpstreamLink(original) || reportsProblem(original)) {
+            line.append(Component.literal(" "));
+            line.append(ChikaChat.link(Branding.REPORT_ISSUE_TEXT, Branding.ISSUES_URL));
+        }
+
+        return line;
     }
+
+    /**
+     * Removes every trace of the bundled engine's public identity from
+     * player-facing text.
+     *
+     * <p>Two things are rewritten:
+     * <ul>
+     *   <li><b>URLs</b> that point at the engine's own project become this
+     *       project's issue page. The engine prints one verbatim in its
+     *       unhandled-exception message
+     *       ("...please report this at https://github.com/&lt;upstream&gt;/issues"),
+     *       and that line reaches the player's chat through the very sink this
+     *       relay wraps.</li>
+     *   <li><b>The engine's name</b>, in any casing, including the 3 March
+     *       "Baritoe" variant, becomes the Chika Builder product name.</li>
+     * </ul>
+     *
+     * <p>Pure string handling, so every rule is unit testable.
+     */
+    public static String scrubUpstream(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+
+        String out = replaceUpstreamUrls(text);
+
+        // The engine's settings file is not the player's file - point at ours.
+        out = out.replaceAll("(?i)baritone\\.properties", "chika-builder.json");
+        out = out.replaceAll("(?i)\\bbaritoe\\b|\\bbaritone\\b", Branding.PRODUCT_NAME);
+
+        return out;
+    }
+
+    /** True when the text carries a link that belongs to the bundled engine. */
+    public static boolean mentionsUpstreamLink(String text) {
+        if (text == null) {
+            return false;
+        }
+
+        java.util.regex.Matcher matcher = URL.matcher(text);
+
+        while (matcher.find()) {
+            if (isUpstreamUrl(matcher.group())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** True when the line is asking the player to report a problem. */
+    public static boolean reportsProblem(String text) {
+        if (text == null) {
+            return false;
+        }
+
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("report this") || lower.contains("please report");
+    }
+
+    private static String replaceUpstreamUrls(String text) {
+        java.util.regex.Matcher matcher = URL.matcher(text);
+        StringBuffer out = new StringBuffer();
+
+        while (matcher.find()) {
+            String url = matcher.group();
+            String replacement = isUpstreamUrl(url) ? Branding.ISSUES_URL : url;
+            matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(replacement));
+        }
+
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    /**
+     * True when a URL points at the bundled engine's own project.
+     *
+     * <p>The upstream name appears here only as a <b>filter</b>: this is the
+     * pattern Chika Builder recognises in order to rewrite it away, never a link
+     * shown to a player. Anything it matches is replaced with
+     * {@link Branding#ISSUES_URL}.
+     */
+    private static boolean isUpstreamUrl(String url) {
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains(UPSTREAM_PROJECT) || lower.contains(UPSTREAM_OWNER);
+    }
+
+    /** The engine's own project name, used only to recognise and hide it. */
+    private static final String UPSTREAM_PROJECT = "baritone";
+
+    /** The engine's repository owner, used only to recognise and hide it. */
+    private static final String UPSTREAM_OWNER = "cabaletta";
+
+    private static final java.util.regex.Pattern URL =
+            java.util.regex.Pattern.compile("https?://\\S+");
 }

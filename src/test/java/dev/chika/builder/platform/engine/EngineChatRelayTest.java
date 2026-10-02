@@ -3,6 +3,7 @@ package dev.chika.builder.platform.engine;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -70,5 +71,68 @@ class EngineChatRelayTest {
         String rendered = dev.chika.builder.ui.ChikaChat.PREFIX_TEXT + stripped;
 
         assertEquals("[Chika Builder] Unable to do it. Pausing. resume to resume", rendered);
+    }
+
+    // ------------------------------------------------------------------
+    // The upstream link and name that leaked into player chat.
+    // ------------------------------------------------------------------
+
+    /** The exact line the engine prints on an unhandled exception. */
+    private static final String UPSTREAM_ISSUE_LINE =
+            "An unhandled exception occurred. The error is in your game's log, "
+                    + "please report this at https://github.com/cabaletta/baritone/issues";
+
+    @Test
+    void theUpstreamIssueLinkNeverReachesThePlayer() {
+        String scrubbed = EngineChatRelay.scrubUpstream(UPSTREAM_ISSUE_LINE);
+
+        assertFalse(scrubbed.contains("cabaletta"), scrubbed);
+        assertFalse(scrubbed.toLowerCase(java.util.Locale.ROOT).contains("baritone"), scrubbed);
+        assertTrue(scrubbed.contains(dev.chika.builder.Branding.ISSUES_URL), scrubbed);
+    }
+
+    @Test
+    void theUpstreamNameIsRemovedInEveryCasing() {
+        assertEquals("Chika Builder says hello",
+                EngineChatRelay.scrubUpstream("Baritone says hello"));
+        assertEquals("Chika Builder says hello",
+                EngineChatRelay.scrubUpstream("baritone says hello"));
+        assertEquals("Chika Builder says hello",
+                EngineChatRelay.scrubUpstream("Baritoe says hello"));
+    }
+
+    @Test
+    void theUpstreamSettingsFileIsReplacedByOurs() {
+        assertEquals("Could not read chika-builder.json",
+                EngineChatRelay.scrubUpstream("Could not read baritone.properties"));
+    }
+
+    @Test
+    void linksThatAreOursAreLeftAlone() {
+        String ours = "See " + dev.chika.builder.Branding.ISSUES_URL + " for help";
+
+        assertEquals(ours, EngineChatRelay.scrubUpstream(ours));
+        assertEquals("See https://example.com/page for help",
+                EngineChatRelay.scrubUpstream("See https://example.com/page for help"));
+    }
+
+    @Test
+    void upstreamLinksAndProblemReportsAreDetected() {
+        assertTrue(EngineChatRelay.mentionsUpstreamLink(UPSTREAM_ISSUE_LINE));
+        assertFalse(EngineChatRelay.mentionsUpstreamLink("nothing to see here"));
+        assertTrue(EngineChatRelay.reportsProblem("please report this at ..."));
+        assertFalse(EngineChatRelay.reportsProblem("build complete"));
+    }
+
+    @Test
+    void theIssueLinkPointsAtThisProject() {
+        // Derived from `git remote -v` -> origin
+        // https://github.com/Mr-Divyansh/Chika-Builder-Mod-Minecraft.git
+        assertTrue(dev.chika.builder.Branding.ISSUES_URL
+                .startsWith("https://github.com/Mr-Divyansh/Chika-Builder-Mod-Minecraft"));
+        assertTrue(dev.chika.builder.Branding.ISSUES_URL.endsWith("/issues"));
+        assertFalse(dev.chika.builder.Branding.ISSUES_URL.toLowerCase(java.util.Locale.ROOT)
+                .contains("baritone"));
+        assertFalse(dev.chika.builder.Branding.ISSUES_URL.contains("cabaletta"));
     }
 }

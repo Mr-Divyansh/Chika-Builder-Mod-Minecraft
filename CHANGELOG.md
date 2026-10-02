@@ -39,6 +39,54 @@ versions are tagged with the mod version in `gradle.properties`.
   gamemode is never changed.
 - Version bumped to 1.1.2 (Minecraft 26.1.2 unchanged).
 
+## [1.1.2] — live build completion and zero upstream branding
+
+### Fixed
+
+- **The build no longer stalls with material it already has.** The engine asks
+  only whether a block is *present* in the player's 36 storage slots - it builds
+  its placeable list by scanning them, and in Creative placing does not consume
+  the stack. The planner demanded the *full* count instead, so a schematic whose
+  totals exceed 36 slots could never be satisfied and the build stopped with
+  "N block(s) still missing". Creative is now treated as an effectively
+  unlimited source: one of each required block is enough, and a partial count is
+  a success. The inventory is still the only proof - a supplier that claims a
+  hand-over without the count moving is reported as a failure, never believed.
+- **"Already built" is judged the same way the engine judges it.** The engine
+  ignores direction/rotation properties (stairs' facing/half/shape, a pillar's
+  axis, pipes' side flags, a trapdoor's open) when it decides a cell is done; we
+  compared every property exactly, so cells the engine had finished stayed
+  outstanding forever. Both sides now use the same rule, and the engine's
+  supported `buildIgnoreDirection` option is switched on, so a placement
+  orientation can no longer leave a cell unbuildable.
+- **Supply never discards the player's items.** The Creative hand-over used to
+  empty the inventory menu's non-storage slots, which includes the four armour
+  slots; it now only tops up matching stacks and writes into empty slots.
+- **The upstream issue link no longer reaches the player.** The engine's
+  unhandled-exception line carries its own tracker URL, and it arrived through
+  the very chat sink the relay wraps. URLs pointing at the engine's project are
+  rewritten to this project's issue page, the engine's name is replaced by
+  "Chika Builder" in any casing, and the engine's settings-file name points at
+  ours. The engine jar itself is untouched.
+- **Chat colour hierarchy.** The prefix is pink; message bodies are white; the
+  issue link is white, underlined and clickable, and points at
+  `Mr-Divyansh/Chika-Builder-Mod-Minecraft` (taken from this repository's
+  `origin` remote).
+- **Pause messages say only what is true.** The build reports the exact
+  materials still missing (from a live re-plan), whether automatic supply is the
+  reason, and never promises a resume that has not happened.
+
+### Changed
+
+- A partial Creative hand-over no longer resumes the engine. The resume
+  condition is "blocks arrived **and** a re-plan against the live inventory
+  shows every requirement covered" - across all material types. Partial rounds
+  keep the engine paused and trigger another round; rounds that deliver nothing
+  count against a bounded budget and end in a paused report with the exact
+  remainder. Creative still requires the player to be genuinely in Creative, and
+  the gamemode is never changed.
+- Version stays 1.1.2 (Minecraft 26.1.2 unchanged).
+
 ## [1.1.1] — live runtime recovery and branding
 
 ### Added

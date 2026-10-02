@@ -23,6 +23,16 @@ public final class CreativeAcquisition {
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger("Chika Builder");
 
+    /**
+     * How many hand-over calls a single material may get in one round.
+     *
+     * <p>One is normally enough (a Creative hand-over fills a whole stack at
+     * once); a second covers a supplier that needs a follow-up call. The loop
+     * also stops the moment a call makes no progress, so this is a hard ceiling,
+     * never a loop that can spin.
+     */
+    private static final int MAX_PRESENCE_PASSES = 2;
+
     private final CreativeSupplier supplier;
     private final InventoryCounter inventory;
 
@@ -77,38 +87,40 @@ public final class CreativeAcquisition {
             String displayName = need.item().displayName();
             int inventoryBefore = countOf(itemId);
 
-            // Creative is infinite, but the player's inventory is not: hand over
-            // repeatedly until the whole shortfall arrives, the inventory is
-            // full, or a grant makes no further progress.
+            // Creative is an effectively unlimited source, and the engine's own
+            // material check only asks whether the block is PRESENT in the
+            // player's 36 storage slots (it builds a placeable list by scanning
+            // them, and in Creative placing does not consume the stack). So the
+            // goal of a round is presence, not the full total: insisting on all
+            // 248 dirt is what made a schematic unsatisfiable once the inventory
+            // had to share its slots between material types.
             //
-            // A single call is NOT enough. The inventory supplier fills at most
-            // one stack per call, so asking once for 248 stone could only ever
-            // produce 64 and the build would stall on an artificially small
-            // number. The loop is bounded by the shortfall itself, so it can
-            // never run forever: each pass either closes the gap or stops.
+            // The loop is bounded: a pass either makes the item present or makes
+            // no progress, and no progress means we stop and report honestly.
             int gained = 0;
+            boolean present = inventoryBefore > 0;
 
-            while (gained < requested) {
-                int before = countOf(itemId);
-                int stillNeeded = requested - gained;
+            for (int pass = 0; pass < MAX_PRESENCE_PASSES && !present; pass++) {
+                int passBefore = countOf(itemId);
 
-                grant(itemId, stillNeeded);
+                grant(itemId, requested - gained);
 
-                int after = countOf(itemId);
-                int step = Math.max(0, after - before);
-
-                if (step <= 0) {
-                    // Nothing arrived. Either the inventory is full or Creative is
-                    // no longer available; either way, stop and report honestly.
-                    break;
-                }
+                int passAfter = countOf(itemId);
+                int step = Math.max(0, passAfter - passBefore);
 
                 gained += step;
+                present = passAfter > 0;
+
+                if (step <= 0) {
+                    // Nothing arrived: the inventory is full of other items, or
+                    // Creative is no longer available. Either way, stop.
+                    break;
+                }
             }
 
-            if (gained <= 0) {
+            if (!present) {
                 LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
-                                + "inventory before={}, supplied=0, remaining={}",
+                                + "inventory before={}, supplied=0, remaining={}, present=false",
                         itemId, requested, inventoryBefore, requested);
                 failures.add(new CreativeReport.CreativeFailure(itemId, displayName, requested,
                         "Creative did not supply these blocks."));
@@ -116,18 +128,10 @@ public final class CreativeAcquisition {
             }
 
             LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
-                            + "inventory before={}, supplied={}, inventory after={}, "
-                            + "remaining={}",
-                    itemId, requested, inventoryBefore, gained, countOf(itemId),
-                    Math.max(0, requested - gained));
+                            + "inventory before={}, supplied={}, inventory after={}, present=true",
+                    itemId, requested, inventoryBefore, gained, countOf(itemId));
 
             granted.add(new CreativeReport.CreativeGrant(itemId, displayName, requested, gained));
-
-            if (gained < requested) {
-                // Be exact: the player must know why the build still cannot start.
-                failures.add(new CreativeReport.CreativeFailure(itemId, displayName, requested,
-                        "Only " + gained + " of " + requested + " fitted in the inventory."));
-            }
         }
 
         return new CreativeReport(granted, failures);

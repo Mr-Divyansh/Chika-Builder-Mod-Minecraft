@@ -139,15 +139,25 @@ public final class ChikaBuildService implements BuildService {
         // engine verifies existing blocks and only fixes the ones that are wrong.
         // (Blocks that already match are skipped, which is the desired behaviour.)
         settings.buildIgnoreExisting.value = false;
+
+        // Accept placement orientation, exactly the way the engine compares
+        // "already built". The state a player produces by clicking a block
+        // depends on where they stand and which way they face, so requiring an
+        // exact facing/half/shape/axis can leave a cell unbuildable forever and
+        // the engine then reports "Missing materials" for a block that is
+        // already in the player's hand. This is a supported engine option, set
+        // here rather than by touching the engine jar.
+        settings.buildIgnoreDirection.value = true;
+
         // Layered building keeps the engine's movement stable and efficient.
         settings.buildInLayers.value = true;
+        // Re-check blocks around the build so mis-placed blocks get corrected.
+        settings.builderTickScanRadius.value = 1;
         // Surface a message when the build finishes - in chat, through our own
         // branded sink. The engine's *desktop* notification helper is left off:
         // it posts an OS tray toast titled with the engine's name, which would
         // put third-party branding on screen outside our control.
         settings.notificationOnBuildFinished.value = false;
-        // Re-check blocks around the build so mis-placed blocks get corrected.
-        settings.builderTickScanRadius.value = 1;
     }
 
     private static IBaritone engine() {

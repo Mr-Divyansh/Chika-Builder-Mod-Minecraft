@@ -73,22 +73,33 @@ public final class MaterialPlanner {
             return withResolution(need, MaterialResolution.ALREADY_PLACED);
         }
 
-        // 2. Player inventory covers the outstanding amount.
+        // 2. The player's inventory covers the outstanding amount.
         if (need.shortfall() == 0) {
             return withResolution(need, MaterialResolution.INVENTORY);
         }
 
-        // 3. Creative supplies the rest, but only when actually in Creative.
+        // 3. Creative is an effectively unlimited source, and the engine only
+        //    ever asks "is at least one of this block in my storage slots?" - it
+        //    builds a list of placeable states by scanning the 36 slots, and in
+        //    Creative placing does not consume the stack. So holding a single
+        //    one is genuinely enough, and insisting on the full count would
+        //    make a schematic unsatisfiable purely because 36 slots cannot hold
+        //    every total at once.
+        if (creativeUsable && need.inInventory() > 0) {
+            return withResolution(need, MaterialResolution.INVENTORY);
+        }
+
+        // 4. Creative supplies the rest, but only when actually in Creative.
         if (creativeUsable) {
             return withResolution(need, MaterialResolution.CREATIVE);
         }
 
-        // 4. A shop may buy whatever is still short.
+        // 5. A shop may buy whatever is still short.
         if (shopEnabled) {
             return withResolution(need, MaterialResolution.SHOP);
         }
 
-        // 5. Unobtainable - the build pauses and reports.
+        // 6. Unobtainable - the build pauses and reports.
         return withResolution(need, MaterialResolution.MISSING);
     }
 
