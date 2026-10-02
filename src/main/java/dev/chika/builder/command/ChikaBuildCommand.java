@@ -7,6 +7,7 @@ import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.build.BuildOutcome;
 import dev.chika.builder.build.BuildService;
 import dev.chika.builder.schematic.SchematicLocator;
+import dev.chika.builder.ui.ChikaChat;
 import net.minecraft.core.BlockPos;
 
 import java.io.File;
@@ -89,11 +90,15 @@ public final class ChikaBuildCommand extends Command {
         return Stream.empty();
     }
 
-    /** Sends a message to the player, free of any engine command chatter. */
+    /**
+         * Sends a message to the player with Chika Builder's own pink prefix.
+         *
+         * <p>Goes through {@link ChikaChat} so every user-facing line is
+         * branded consistently and can never leak the engine's name.
+         */
     private static void say(baritone.api.utils.IPlayerContext ctx, String message) {
         if (ctx.minecraft() != null && ctx.minecraft().player != null) {
-            ctx.minecraft().player.sendSystemMessage(
-                    net.minecraft.network.chat.Component.literal(message));
+            ctx.minecraft().player.sendSystemMessage(ChikaChat.message(message));
         }
     }
 

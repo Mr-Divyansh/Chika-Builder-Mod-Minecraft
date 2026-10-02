@@ -43,7 +43,12 @@ public final class MinecraftPlayerContext implements PlayerContext {
     }
 
     /**
-     * Total number of matching items across the player's whole inventory.
+     * Total number of matching items in the player's 36 storage slots
+     * (hotbar and main rows).
+     *
+     * <p>Deliberately the same 36-slot view the build engine scans when it
+     * decides what it can place, so the plan, the hand-over verification and
+     * the engine can never disagree about what the player is holding.
      *
      * <p>Shared with {@link CreativeInventorySupplier} so the "before" and
      * "after" counts a Creative hand-over is verified against are taken the same

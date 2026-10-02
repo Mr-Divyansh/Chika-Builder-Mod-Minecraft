@@ -6,6 +6,8 @@ import baritone.api.command.ICommand;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.chika.builder.build.BuildCoordinator;
 import dev.chika.builder.build.BuildService;
+import dev.chika.builder.build.BuildSupervisor;
+import dev.chika.builder.build.material.CreativeReport;
 import dev.chika.builder.build.material.CreativeSupplier;
 import dev.chika.builder.build.material.PlayerContext;
 import dev.chika.builder.build.material.SchematicAnalyzer;
@@ -17,8 +19,10 @@ import dev.chika.builder.config.ChikaConfig;
 import dev.chika.builder.platform.engine.ChikaBuildService;
 import dev.chika.builder.platform.engine.ChikaSchematicAnalyzer;
 import dev.chika.builder.platform.engine.CreativeInventorySupplier;
+import dev.chika.builder.platform.engine.EngineChatRelay;
 import dev.chika.builder.platform.engine.MinecraftPlayerContext;
 import dev.chika.builder.schematic.SchematicLocator;
+import dev.chika.builder.ui.ChikaChat;
 import dev.chika.builder.ui.ChikaSettingsScreen;
 import dev.chika.builder.ui.WatermarkHud;
 import net.fabricmc.api.ClientModInitializer;
@@ -58,6 +62,7 @@ public final class ChikaBuilderClient implements ClientModInitializer {
     private SchematicLocator locator;
     private BuildService buildService;
     private BuildCoordinator coordinator;
+    private BuildSupervisor supervisor;
     private KeyMapping openSettingsKey;
 
     /** Ticks remaining in the periodic command-lockdown re-check. */
@@ -99,6 +104,12 @@ public final class ChikaBuilderClient implements ClientModInitializer {
         ChikaConfig.load();
         registerBranding();
 
+        // Rebrand engine chat as early as possible. The relay is idempotent
+        // (it wraps the sink exactly once) and re-asserted again on
+        // CLIENT_STARTED below, so no engine line can slip through unbranded
+        // simply because the engine printed before its own init finished.
+        EngineChatRelay.install();
+
         // The supply chain: read the schematic, check inventory, then Creative
         // and auto-shop if the player has enabled them. Reads the player's real
         // gamemode only - it never changes it, and the supplier re-checks that
@@ -121,12 +132,38 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                     }
                 });
 
+        // The engine pauses itself when it runs out of blocks. This supervisor watches
+        // for that and puts the build right: supply the missing materials, resume
+        // the engine, and only report completion once the world matches the
+        // schematic. Without it the build stopped after the first few layers and
+        // the player was told to type a `resume` command that does not exist.
+        this.supervisor = new BuildSupervisor(
+                new BuildSupervisor.BuildControl() {
+                    @Override
+                    public boolean isRunning() {
+                        return buildService.isBuilding();
+                    }
+
+                    @Override
+                    public boolean isPaused() {
+                        return buildService.isPaused();
+                    }
+
+                    @Override
+                    public void resume() {
+                        buildService.resume();
+                    }
+                },
+                () -> this.coordinator.supplyOutstanding(),
+                () -> this.coordinator.outstandingBlocks());
+
         // The internal build engine finishes registering its own commands after
         // mod init, so the lockdown retries here and then re-checks briefly on
         // a timer. This is what makes the removal stick.
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
             for (int attempt = 1; attempt <= 20; attempt++) {
                 try {
+                    EngineChatRelay.install();
                     registerAndLockDown();
                     break;
                 } catch (Throwable t) {
@@ -147,7 +184,79 @@ public final class ChikaBuilderClient implements ClientModInitializer {
                 this.lockdownTicks--;
                 this.enforceLockdown();
             }
+
+            this.superviseBuild();
         });
+    }
+
+    /**
+     * Keeps a running build alive.
+     *
+     * <p>The engine pauses itself when it runs out of blocks, so something has to
+     * watch it: supply what is missing, resume, and only call the build finished
+     * once the world actually matches the schematic. Without this the build used
+     * to stop after the first few layers and stay stopped.
+     */
+    private void superviseBuild() {
+        if (!this.supervisor.isActive()) {
+            // Pick up a build that was started by #chika_build.
+            if (this.coordinator.hasActiveBuild() && this.buildService.isBuilding()) {
+                this.supervisor.begin();
+            } else {
+                return;
+            }
+        }
+
+        boolean changed = this.supervisor.tick();
+
+        if (!changed) {
+            return;
+        }
+
+        switch (this.supervisor.status()) {
+            case COMPLETE -> {
+                LOGGER.info("[Chika Builder] Build complete - every block verified.");
+                ChikaChat.say("Build complete - every block is in place.");
+                this.finishActiveBuild();
+            }
+            case PAUSED -> {
+                int outstanding = this.coordinator.outstandingBlocks();
+                LOGGER.info("[Chika Builder] Build paused with {} block(s) outstanding "
+                        + "after {} fruitless supply attempt(s).",
+                        outstanding, this.supervisor.attempts());
+
+                if (outstanding < 0) {
+                    ChikaChat.say("Build paused - progress could not be verified.");
+                } else {
+                    ChikaChat.say("Build paused - " + outstanding
+                            + " block(s) still missing. Running #chika_build again resumes.");
+                }
+
+                this.reportSupplyShortfall();
+                this.finishActiveBuild();
+            }
+            default -> {
+                // RUNNING/IDLE need no message here.
+            }
+        }
+    }
+
+    /** Explains exactly which materials could not be supplied. */
+    private void reportSupplyShortfall() {
+        CreativeReport report = this.coordinator.lastCreativeReport();
+
+        if (report == null || report.failures().isEmpty()) {
+            return;
+        }
+
+        for (String failure : report.describeFailures()) {
+            ChikaChat.say(failure);
+        }
+    }
+
+    private void finishActiveBuild() {
+        this.supervisor.end();
+        this.coordinator.clearActiveBuild();
     }
 
     /**

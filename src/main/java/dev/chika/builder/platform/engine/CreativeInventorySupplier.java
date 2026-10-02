@@ -105,9 +105,11 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
         int max = Math.max(1, stack.getMaxStackSize());
         int remaining = stack.getCount();
 
-        // Any slot already holding the same block is filled first.
+        // Any slot already holding the same block is filled first. Only the
+        // 36 storage rows: that is exactly what the engine scans (see
+        // Inventories.isStorageContainerIndex).
         for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
-            if (!Inventories.isWritableStorageContainerIndex(slot)) {
+            if (!Inventories.isStorageContainerIndex(slot)) {
                 continue;
             }
             ItemStack existing = inventory.getItem(slot);
@@ -121,7 +123,7 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
 
         // Then entirely empty slots.
         for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
-            if (!Inventories.isWritableStorageContainerIndex(slot)) {
+            if (!Inventories.isStorageContainerIndex(slot)) {
                 continue;
             }
 
@@ -161,7 +163,14 @@ public final class CreativeInventorySupplier implements CreativeSupplier {
         syncMenu(minecraft, slot, merged);
 
         // 3. tell the server, through the vanilla client method.
-        addToCreative(minecraft, merged, slot);
+        //
+        // The vanilla Creative screen passes an InventoryMenu slot number
+        // (hotbar container 0-8 -> menu 36-44), never a raw container index:
+        // the server validates the packet slot against 1..45 and then writes
+        // player.inventoryMenu.getSlot(slot). A container index would land in
+        // the crafting/armor slots (or be dropped entirely for slot 0), so the
+        // server would never actually receive the blocks.
+        addToCreative(minecraft, merged, Inventories.menuSlotOfContainerIndex(slot));
 
         return added;
     }

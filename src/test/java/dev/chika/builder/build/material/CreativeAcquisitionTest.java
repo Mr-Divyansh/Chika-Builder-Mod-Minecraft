@@ -44,6 +44,7 @@ class CreativeAcquisitionTest {
 
         private final FakeInventory inventory;
         private final boolean available;
+        /** How many of this item the inventory can hold in total (a fullness cap). */
         private final int cap;
         private final boolean deliver;
         private final List<String> requests = new ArrayList<>();
@@ -63,7 +64,12 @@ class CreativeAcquisitionTest {
         @Override
         public int grant(String itemId, int amount) {
             this.requests.add(itemId + " x" + amount);
-            int claimed = Math.min(amount, this.cap);
+
+            // A cap models a full inventory: once the item is at capacity nothing
+            // more fits, however many times the acquisition loop asks. This is
+            // what makes repeated hand-overs stop instead of granting forever.
+            int room = Math.max(0, this.cap - this.inventory.countOf(itemId));
+            int claimed = Math.min(amount, room);
 
             if (this.deliver && claimed > 0) {
                 this.inventory.put(itemId, this.inventory.countOf(itemId) + claimed);

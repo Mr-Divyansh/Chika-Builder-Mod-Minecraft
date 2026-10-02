@@ -35,12 +35,22 @@ import java.util.List;
  */
 public final class BuildCoordinator {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("Chika Builder");
+
     private final BuildService buildService;
     private final SchematicAnalyzer analyzer;
     private final PlayerContext player;
     private final PurchaseOrchestrator purchases;
     private final CreativeAcquisition creative;
     private final Settings settings;
+
+    /** The build currently handed to the engine, so a pause can be recovered. */
+    private File activeSchematic;
+    private BuildService.Origin activeOrigin;
+
+    /** The most recent Creative hand-over, for player-facing reporting. */
+    private CreativeReport lastCreativeReport = CreativeReport.nothingToDo();
 
     /** Which optional supply methods are switched on, persisted in the config. */
     public interface Settings {
@@ -82,6 +92,7 @@ public final class BuildCoordinator {
 
         // 2. Overlay the player's live inventory and apply the priority ladder.
         MaterialPlan plan = planWith(required);
+        logPlan(schematic.getName(), plan);
 
         PurchaseReport report = PurchaseReport.nothingToDo();
         CreativeReport creativeReport = CreativeReport.nothingToDo();
@@ -146,14 +157,132 @@ public final class BuildCoordinator {
                 this.settings.isShopEnabled());
     }
 
+    /**
+     * Tries to supply whatever the running build still needs, and reports how
+     * many items genuinely arrived.
+     *
+     * <p>This is what the supervisor calls when the engine pauses mid-build. The
+     * plan is rebuilt from the live world first, so blocks already placed are
+     * excluded and the build continues from the remaining work rather than
+     * starting over.
+     *
+     * @return the number of items that reached the inventory; {@code 0} when
+     *         nothing could be supplied
+     */
+    public int supplyOutstanding() {
+        if (this.activeSchematic == null || this.activeOrigin == null) {
+            return 0;
+        }
+
+        try {
+            List<MaterialNeed> required = this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
+
+            if (required == null || required.isEmpty()) {
+                return 0;
+            }
+
+            MaterialPlan plan = planWith(required);
+
+            if (!plan.requiresCreative()) {
+                // Nothing Creative can currently add. The shop rung, if enabled,
+                // has already had its chance; report honestly that nothing moved.
+                return 0;
+            }
+
+            CreativeReport report = this.creative.acquire(plan);
+
+            int delivered = 0;
+
+            for (CreativeReport.CreativeGrant grant : report.granted()) {
+                delivered += grant.acquired();
+            }
+
+            this.lastCreativeReport = report;
+            LOGGER.info("[Chika Builder] Mid-build supply round for '{}': "
+                    + "{} item(s) delivered, {} failure(s).",
+                    this.activeSchematic.getName(), delivered, report.failures().size());
+            return delivered;
+        } catch (SchematicAnalyzer.SchematicAnalysisException e) {
+            // The schematic cannot be re-read, so progress cannot be trusted.
+            return 0;
+        }
+    }
+
+    /**
+     * Counts schematic blocks that are not yet correct in the world.
+     *
+     * <p>Completion is decided by this, never by "the engine stopped", because a
+     * build that stalled can leave blocks genuinely unplaced.
+     *
+     * @return the outstanding count, or {@code -1} when it cannot be determined
+     */
+    public int outstandingBlocks() {
+        if (this.activeSchematic == null || this.activeOrigin == null) {
+            return 0;
+        }
+
+        try {
+            List<MaterialNeed> required = this.analyzer.analyze(this.activeSchematic, this.activeOrigin);
+            int outstanding = 0;
+
+            for (MaterialNeed need : required) {
+                outstanding += need.outstanding();
+            }
+
+            return outstanding;
+        } catch (SchematicAnalyzer.SchematicAnalysisException e) {
+            return -1;
+        }
+    }
+
+    /** The most recent Creative hand-over report, for player-facing messaging. */
+    public CreativeReport lastCreativeReport() {
+        return this.lastCreativeReport;
+    }
+
+    /**
+     * One log line per material so a live run shows exactly what was required,
+     * already placed, held, and which rung will cover it.
+     */
+    private static void logPlan(String schematicName, MaterialPlan plan) {
+        for (MaterialNeed need : plan.needs()) {
+            LOGGER.info("[Chika Builder] {} material {}: required={}, already placed={}, "
+                            + "held={}, outstanding={}, shortfall={} -> {}",
+                    schematicName, need.item().itemId(), need.required(), need.alreadyPlaced(),
+                    need.inInventory(), need.outstanding(), need.shortfall(), need.resolution());
+        }
+    }
+
+    /** Whether a build is currently handed to the engine. */
+    public boolean hasActiveBuild() {
+        return this.activeSchematic != null;
+    }
+
+    /** Forgets the active build once it has finished or been abandoned. */
+    public void clearActiveBuild() {
+        this.activeSchematic = null;
+        this.activeOrigin = null;
+        this.lastCreativeReport = null;
+    }
+
     /** Starts (or resumes) the build through the backend. */
     private BuildOutcome start(File schematic, BuildService.Origin origin, MaterialPlan plan,
                                PurchaseReport report, CreativeReport creativeReport) {
+        // Final picture at the moment the engine takes over: everything the
+        // plan relies on is on screen in the log if the build later stalls.
+        logPlan(schematic.getName(), plan);
+
         try {
             this.buildService.startBuild(schematic, origin);
         } catch (BuildException e) {
             return BuildOutcome.rejected(e.getMessage());
         }
+
+        // Remember the build so a later pause can be supplied and resumed without
+        // the player re-typing the command. Progress is always re-derived from
+        // the world, so a resume never rebuilds finished work.
+        this.activeSchematic = schematic;
+        this.activeOrigin = origin;
 
         String summary = "Building '" + schematic.getName() + "' from " + origin + ".";
         if (!creativeReport.granted().isEmpty()) {

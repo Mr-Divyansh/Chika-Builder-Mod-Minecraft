@@ -89,6 +89,30 @@ public final class ChikaBuildService implements BuildService {
     }
 
     @Override
+    public boolean isPaused() {
+        try {
+            IBaritone engine = engine();
+            return engine != null && engine.getBuilderProcess() != null
+                    && engine.getBuilderProcess().isActive()
+                    && engine.getBuilderProcess().isPaused();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public void resume() {
+        try {
+            IBaritone engine = engine();
+            if (engine != null && engine.getBuilderProcess() != null) {
+                engine.getBuilderProcess().resume();
+            }
+        } catch (Throwable ignored) {
+            // Nothing to resume.
+        }
+    }
+
+    @Override
     public boolean cancel() {
         try {
             IBaritone engine = engine();
@@ -117,8 +141,11 @@ public final class ChikaBuildService implements BuildService {
         settings.buildIgnoreExisting.value = false;
         // Layered building keeps the engine's movement stable and efficient.
         settings.buildInLayers.value = true;
-        // Surface a message when the build finishes.
-        settings.notificationOnBuildFinished.value = true;
+        // Surface a message when the build finishes - in chat, through our own
+        // branded sink. The engine's *desktop* notification helper is left off:
+        // it posts an OS tray toast titled with the engine's name, which would
+        // put third-party branding on screen outside our control.
+        settings.notificationOnBuildFinished.value = false;
         // Re-check blocks around the build so mis-placed blocks get corrected.
         settings.builderTickScanRadius.value = 1;
     }

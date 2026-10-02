@@ -38,6 +38,8 @@ class BuildCoordinatorTest {
     private static final class RecordingBuildService implements BuildService {
 
         private int started;
+        private int resumed;
+        private boolean paused;
         private File lastSchematic;
 
         @Override
@@ -59,6 +61,17 @@ class BuildCoordinatorTest {
         @Override
         public boolean isBuilding() {
             return this.started > 0;
+        }
+
+        @Override
+        public boolean isPaused() {
+            return this.paused;
+        }
+
+        @Override
+        public void resume() {
+            this.resumed++;
+            this.paused = false;
         }
 
         @Override
@@ -175,8 +188,8 @@ class BuildCoordinatorTest {
         }
 
         /**
-         * @param capPerGrant how much a single hand-over can deliver, so a test
-         *                    can simulate a full inventory
+         * @param capPerGrant how much of this item the inventory can hold in
+         *                    total, so a test can simulate a full inventory
          */
         StubCreative(StubPlayer player, boolean available, int capPerGrant) {
             this.player = player;
@@ -192,7 +205,13 @@ class BuildCoordinatorTest {
         @Override
         public int grant(String itemId, int amount) {
             this.requests.add(itemId + " x" + amount);
-            int delivered = Math.min(amount, this.capPerGrant);
+
+            // The cap is inventory capacity, not a per-call limit: once the item
+            // is at capacity nothing more fits, however many times the
+            // acquisition loop asks. That is what makes a genuinely full
+            // inventory stop the hand-over instead of granting forever.
+            int room = Math.max(0, this.capPerGrant - this.player.countItem(itemId));
+            int delivered = Math.min(amount, room);
 
             if (delivered > 0) {
                 this.player.set(itemId, this.player.countItem(itemId) + delivered);
@@ -531,6 +550,89 @@ class BuildCoordinatorTest {
 
         assertEquals(BuildStatus.REJECTED, outcome.status());
         assertEquals(0, service.started);
+    }
+
+    // ------------------------------------------------------------------
+    // Mid-build recovery - the live "Missing materials" pause scenario.
+    // ------------------------------------------------------------------
+
+    @Test
+    void midBuildPauseIsSuppliedFromCreativeAndTheBuildContinues() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+        StubCreative creative = new StubCreative(player, true);
+
+        BuildCoordinator underTest = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, creative);
+
+        // The build starts from a full inventory - no Creative needed yet.
+        player.set("minecraft:stone", 248);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+        assertEquals(0, creative.requests.size(),
+                "nothing may be taken from Creative when the inventory already covers it");
+        assertTrue(underTest.hasActiveBuild());
+
+        // Mid-build the blocks are gone: this is what makes the engine pause
+        // with "Missing materials for at least:".
+        player.set("minecraft:stone", 0);
+
+        int delivered = underTest.supplyOutstanding();
+
+        assertEquals(248, delivered, "the whole shortfall must be delivered");
+        assertEquals(248, player.countItem("minecraft:stone"),
+                "the inventory count must actually increase");
+        assertFalse(creative.requests.isEmpty(), "the Creative supplier must be called");
+        assertTrue(underTest.lastCreativeReport().allSucceeded());
+        assertEquals(248, underTest.lastCreativeReport().granted().get(0).acquired(),
+                "the report must state what really arrived");
+        assertEquals(1, service.started, "supplying must not restart the build");
+    }
+
+    @Test
+    void midBuildSupplyNeverUsesCreativeWhenTheSettingIsOff() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer();
+        StubCreative creative = new StubCreative(player, true);
+
+        BuildCoordinator underTest = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(false, false), null, creative);
+
+        player.set("minecraft:stone", 248);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+
+        player.set("minecraft:stone", 0); // shortage appears mid-build
+
+        assertEquals(0, underTest.supplyOutstanding(),
+                "with creative=false nothing may be supplied");
+        assertTrue(creative.requests.isEmpty(),
+                "the Creative supplier must not even be contacted when the setting is off");
+        assertEquals(0, player.countItem("minecraft:stone"));
+    }
+
+    @Test
+    void midBuildSupplyReportsFailureWhenTheCreativeSourceCannotDeliver() {
+        RecordingBuildService service = new RecordingBuildService();
+        StubPlayer player = new StubPlayer().creative(true);
+        StubCreative creative = new StubCreative(player, false); // unavailable
+
+        BuildCoordinator underTest = coordinator(service,
+                new StubAnalyzer(List.of(need("minecraft:stone", "Stone", 248, 0, 0))),
+                player, new StubSettings(true, false), null, creative);
+
+        player.set("minecraft:stone", 248);
+        assertTrue(underTest.requestBuild(SCHEMATIC, ORIGIN).isStarted());
+
+        player.set("minecraft:stone", 0);
+
+        assertEquals(0, underTest.supplyOutstanding(),
+                "an unavailable supplier delivers nothing - the caller must be told");
+        assertEquals(0, player.countItem("minecraft:stone"), "no fake inventory");
+        assertTrue(creative.requests.isEmpty(), "an unavailable supplier is never asked");
+        assertFalse(underTest.lastCreativeReport().allSucceeded(),
+                "the failure must be reported, not swallowed");
+        assertEquals(1, service.started, "a failed supply must not restart the build");
     }
 }
 

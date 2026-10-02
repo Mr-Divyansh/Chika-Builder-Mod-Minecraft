@@ -4,6 +4,59 @@ All notable changes to Chika Builder.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are tagged with the mod version in `gradle.properties`.
 
+## [1.1.1] — live runtime recovery and branding
+
+### Added
+
+- **Build supervisor.** The engine stops on its own when it runs out of blocks
+  (`Missing materials for at least:` / `Unable to do it. Pausing.`) - and its
+  `#resume` command is removed by the command lockdown, so the build used to sit
+  paused forever. A per-tick supervisor now watches the running build, supplies
+  what is missing, resumes the engine, and only reports `PAUSED` (with the exact
+  shortfall) after a bounded number of fruitless supply rounds. Completion is
+  verified against the world, never taken from the engine stopping.
+- **Mid-build Creative top-ups.** `#chika_build` supplies materials up front;
+  the supervisor re-plans from the live world whenever the engine pauses, so a
+  build that runs dry mid-way is handed the missing blocks and continues instead
+  of stopping.
+- **Creative supply loops to the full shortfall.** A single hand-over fills at
+  most one stack, so asking once for 248 stone could only ever produce 64. The
+  acquisition now repeats - bounded by the shortfall itself - until the whole
+  amount arrives, the inventory is full, or a round makes no progress.
+- **`[Chika Builder]` chat branding.** Every engine line is delivered through
+  the engine's own `Settings.logger` sink (verified as the engine's *only* path
+  to Minecraft chat). That sink is wrapped at startup: the engine's
+  `[Baritone]` tag is stripped and the line is re-emitted with the pink
+  `[Chika Builder]` prefix. The third-party jar is not modified. The engine's
+  desktop notification helper is disabled so the engine's name cannot appear in
+  an OS toast either.
+- **State-aware "already built" detection.** Correct blocks are compared with
+  their full block state, not just their block type, so a wrongly oriented stair
+  stays in the remaining work set instead of being counted as done and then
+  reported as missing material.
+- **Production diagnostics.** The log now prints, per material, the exact
+  required / already-placed / held / outstanding / shortfall counts at plan
+  time, and for every Creative hand-over the item id, amount requested,
+  inventory before, amount supplied, inventory after and amount remaining -
+  so a live failure can be read straight out of `logs/latest.log`.
+
+### Fixed
+
+- **Creative hand-overs now use vanilla's slot numbering.** The server accepts
+  a creative slot packet only for `InventoryMenu` slots 1..45; we were sending
+  raw container indices, so hotbar hand-overs were silently dropped (slot 0) or
+  written into the crafting/armor slots (1-8). The supplier now maps container
+  index to menu slot exactly the way the vanilla Creative screen does, so the
+  server's inventory matches the client's.
+- **Plan, supplier and engine now read the same 36 inventory slots.** The
+  engine scans only the 36 hotbar/main rows; the plan counted the off-hand too
+  and the supplier could write into it. Blocks sitting in the off-hand are no
+  longer counted as usable and no longer handed over into it.
+
+### Changed
+
+- Version bumped to 1.1.1 (Minecraft 26.1.2 unchanged).
+
 ## [Unreleased]
 
 ### Added

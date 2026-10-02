@@ -20,6 +20,9 @@ import java.util.List;
  */
 public final class CreativeAcquisition {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("Chika Builder");
+
     private final CreativeSupplier supplier;
     private final InventoryCounter inventory;
 
@@ -53,6 +56,9 @@ public final class CreativeAcquisition {
         // Never take anything unless the player genuinely is in Creative. The
         // setting alone is a permission, not a fact.
         if (!isAvailable()) {
+            LOGGER.info("[Chika Builder] Creative supply unavailable - "
+                    + "{} material type(s) not handed over (player is not in "
+                    + "Creative, or there is no player yet).", wanted.size());
             return allFailed(wanted, "Creative mode is not available.");
         }
 
@@ -69,18 +75,51 @@ public final class CreativeAcquisition {
 
             String itemId = need.item().itemId();
             String displayName = need.item().displayName();
+            int inventoryBefore = countOf(itemId);
 
-            int before = countOf(itemId);
-            grant(itemId, requested);
-            int after = countOf(itemId);
+            // Creative is infinite, but the player's inventory is not: hand over
+            // repeatedly until the whole shortfall arrives, the inventory is
+            // full, or a grant makes no further progress.
+            //
+            // A single call is NOT enough. The inventory supplier fills at most
+            // one stack per call, so asking once for 248 stone could only ever
+            // produce 64 and the build would stall on an artificially small
+            // number. The loop is bounded by the shortfall itself, so it can
+            // never run forever: each pass either closes the gap or stops.
+            int gained = 0;
 
-            int gained = Math.max(0, after - before);
+            while (gained < requested) {
+                int before = countOf(itemId);
+                int stillNeeded = requested - gained;
+
+                grant(itemId, stillNeeded);
+
+                int after = countOf(itemId);
+                int step = Math.max(0, after - before);
+
+                if (step <= 0) {
+                    // Nothing arrived. Either the inventory is full or Creative is
+                    // no longer available; either way, stop and report honestly.
+                    break;
+                }
+
+                gained += step;
+            }
 
             if (gained <= 0) {
+                LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
+                                + "inventory before={}, supplied=0, remaining={}",
+                        itemId, requested, inventoryBefore, requested);
                 failures.add(new CreativeReport.CreativeFailure(itemId, displayName, requested,
                         "Creative did not supply these blocks."));
                 continue;
             }
+
+            LOGGER.info("[Chika Builder] Creative supply {}: required={}, "
+                            + "inventory before={}, supplied={}, inventory after={}, "
+                            + "remaining={}",
+                    itemId, requested, inventoryBefore, gained, countOf(itemId),
+                    Math.max(0, requested - gained));
 
             granted.add(new CreativeReport.CreativeGrant(itemId, displayName, requested, gained));
 

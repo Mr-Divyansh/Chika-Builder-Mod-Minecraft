@@ -34,6 +34,24 @@ public interface BuildService {
     boolean isBuilding();
 
     /**
+     * True when a running build has paused itself and is waiting.
+     *
+     * <p>The backend can stop mid-way when it cannot find the blocks it needs
+     * next. That is not the same as the build ending, so it has to be
+     * distinguishable from {@link #isBuilding()} - otherwise a paused build is
+     * indistinguishable from a finished one.
+     */
+    boolean isPaused();
+
+    /**
+     * Continues a paused build from where it stopped.
+     *
+     * <p>Used after missing material has been supplied, so already-placed blocks
+     * are kept and only the remaining work continues.
+     */
+    void resume();
+
+    /**
      * Cancels any in-flight build started through this service.
      *
      * @return true if a running build was cancelled

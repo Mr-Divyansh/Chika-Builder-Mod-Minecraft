@@ -1,6 +1,7 @@
 package dev.chika.builder.platform.engine;
 
 import baritone.api.schematic.IStaticSchematic;
+import dev.chika.builder.build.material.BlockStateView;
 import dev.chika.builder.build.material.MaterialNeed;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
@@ -93,6 +94,12 @@ public final class ExistingBlockChecker {
     /**
      * One traversal of the schematic, tallying how many cells of each wanted
      * block are already correct in the world.
+     *
+     * <p>A cell counts as correct only when the block <b>and its full state</b>
+     * match. Comparing only the block type - which this did before - counted a
+     * wrongly oriented stair as already built, so the build skipped a block it
+     * still had to place and then ran out of material. State-aware comparison
+     * keeps those cells in the remaining work set.
      */
     private static Map<Block, Integer> countCorrect(IStaticSchematic schematic,
                                                     Map<Block, Integer> wanted,
@@ -118,7 +125,7 @@ public final class ExistingBlockChecker {
 
                     BlockState actual = level.getBlockState(origin.offset(x, y, z));
 
-                    if (actual != null && actual.getBlock().equals(block)) {
+                    if (isCorrect(expected, actual)) {
                         correct.merge(block, 1, Integer::sum);
                     }
                 }
@@ -126,5 +133,40 @@ public final class ExistingBlockChecker {
         }
 
         return correct;
+    }
+
+    /**
+     * Whether the world cell already satisfies what the schematic asks for.
+     *
+     * <p>Both the block type and the block state must match. Exposed so the
+     * comparison rule itself can be unit tested without a running game.
+     */
+    static boolean isCorrect(BlockState expected, BlockState actual) {
+        if (expected == null || actual == null) {
+            return false;
+        }
+
+        BlockStateView want = viewOf(expected);
+        BlockStateView have = viewOf(actual);
+
+        return want.matches(have);
+    }
+
+    /** Flattens a block state into the comparable {@link BlockStateView}. */
+    private static BlockStateView viewOf(BlockState state) {
+        // Property order is not guaranteed by the game, so sort it: the same
+        // state must compare equal no matter how its properties are ordered.
+        String properties = state.getValues()
+                .map(value -> value.property().getName() + "=" + nameOf(value.value()))
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(","));
+
+        return new BlockStateView(ItemIds.of(state.getBlock().asItem()), properties);
+    }
+
+    private static String nameOf(Object value) {
+        return value instanceof net.minecraft.util.StringRepresentable named
+                ? named.getSerializedName()
+                : String.valueOf(value);
     }
 }

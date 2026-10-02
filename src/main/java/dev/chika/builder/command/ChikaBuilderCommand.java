@@ -1,6 +1,7 @@
 package dev.chika.builder.command;
 
 import dev.chika.builder.config.ChikaConfig;
+import dev.chika.builder.ui.ChikaChat;
 import baritone.api.IBaritone;
 import baritone.api.command.Command;
 import baritone.api.command.argument.IArgConsumer;
@@ -151,10 +152,16 @@ public final class ChikaBuilderCommand extends Command {
         return null;
     }
 
+    /**
+     * Sends a message with Chika Builder's own pink prefix.
+     *
+     * <p>Every user-facing line from this command goes through
+     * {@link ChikaChat}, so the branding is consistent and the engine's name can
+     * never appear.
+     */
     private void say(String message) {
         if (this.ctx.minecraft() != null && this.ctx.minecraft().player != null) {
-            this.ctx.minecraft().player.sendSystemMessage(
-                    net.minecraft.network.chat.Component.literal(message));
+            this.ctx.minecraft().player.sendSystemMessage(ChikaChat.message(message));
         }
     }
 }
